@@ -16,6 +16,16 @@ module DiscourseRepoActivity
           end
           pending =
             c.events.where(loud: true, chat_message_id: nil).order(:id).to_a
+          pending.each do |event|
+            if event.kind == "failure" &&
+                 c.refs.exists?(
+                   ref_name: event.summary["ref"],
+                   ci_state: "success"
+                 )
+              event.update!(loud: false)
+            end
+          end
+          pending.select!(&:loud)
           return if pending.empty?
           bot = Bot.user
           # Native bot membership does not widen the channel audience.
@@ -140,7 +150,15 @@ module DiscourseRepoActivity
                @connection.enabled_events.include?("recovery")
             "fixed in #{escape(ref.head_sha.to_s[0, 8])}"
           else
-            "#{prefix}#{escape(events.reverse.find { |e| e.kind == "failure" }&.summary&.dig("sha").to_s[0, 8])})"
+            sha =
+              events
+                .reverse
+                .find { |e| e.kind == "failure" }
+                &.summary
+                &.dig("sha")
+                .presence
+            return message.message if sha.blank?
+            "#{prefix}#{escape(sha.to_s[0, 8])})"
           end
         )
       message
@@ -236,15 +254,7 @@ module DiscourseRepoActivity
     end
 
     def escape(value)
-      # Break forge-controlled links, hashtags and mentions before Markdown cooking.
-      # HTML is handled by the cooker; pre-escaping would corrupt apostrophes.
-      value
-        .to_s
-        .gsub("@", "＠")
-        .gsub("#", "＃")
-        .gsub("://", ":​//")
-        .gsub(/www\./i) { |match| "#{match[0..2]}​." }
-        .gsub(/[\\`*_{}\[\]()!|>~<]/) { |character| "\\" + character }
+      title_text(value)
     end
   end
 end

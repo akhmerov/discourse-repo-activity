@@ -77,7 +77,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(message.reload.message).to include("bbbbbbbb")
     workflow(sha: "b" * 40, status: "success", id: 114, run_attempt: 2)
     announce
-    expect(message.reload.message).to include("fixed in bbbbbbbb")
+    expect(message.reload.message).to include("fixed in ` bbbbbbbb `")
     reply =
       Chat::Message.where(chat_channel: channel, user: bot).order(:id).last
     expect(reply.in_reply_to_id).to eq(message.id)
@@ -98,7 +98,9 @@ RSpec.describe DiscourseRepoActivity::Announcer do
 
   it "keeps non-default and PR CI quiet" do
     workflow(head_branch: "feature")
-    workflow(pull_requests: [{ "number" => 8 }])
+    workflow(
+      pull_requests: [{ "number" => 8, "base" => { "repo" => { "id" => 42 } } }]
+    )
     announce
     expect(Chat::Message.where(chat_channel: channel).count).to eq(0)
     expect(connection.refs.pluck(:ref_name)).to contain_exactly(
@@ -183,7 +185,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     announce
     expect(message.reload.message).to include(
       "Bug in solver",
-      "fixed in aaaaaaaa"
+      "fixed in ` aaaaaaaa `"
     )
   end
 
@@ -214,16 +216,16 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(group.group_users.exists?(user: bot)).to eq(false)
   end
 
-  it "coalesces a quick failure and recovery without losing the alert" do
+  it "silences a failure and recovery completed before the first announcement" do
     repo_process(connection, repo_parse(connection, "github_push", "push"))
     workflow
     workflow(status: "success", run_attempt: 2)
     announce
-    messages = Chat::Message.where(chat_channel: channel).order(:id)
-    expect(messages.count).to eq(2)
-    expect(messages.first.message).to include("fixed in aaaaaaaa")
-    expect(messages.last.in_reply_to_id).to eq(messages.first.id)
-    expect(messages.map(&:message).join).not_to include("@Alice")
+    expect(Chat::Message.where(chat_channel: channel)).to be_empty
+    expect(
+      connection.events.where(loud: true, chat_message_id: nil)
+    ).to be_empty
+    expect(connection.refs.first.failing_since).to be_nil
   end
   it "fits busy announcement windows within Chat's length limit" do
     SiteSetting.chat_maximum_message_length = 1000
@@ -275,7 +277,9 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     announce
     workflow(status: "success", run_attempt: 2)
     announce
-    expect(connection.events.order(:id).pluck(:kind)).to eq(%w[failure recovery])
+    expect(connection.events.order(:id).pluck(:kind)).to eq(
+      %w[failure recovery]
+    )
     expect(connection.refs.first.failing_since).to be_nil
   end
 
@@ -341,7 +345,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     announce
     expect(Chat::Message.where(chat_channel: channel)).to be_empty
     expect(connection.events.where(loud: true)).to be_empty
-    expect(connection.refs.first.failing_since).to be_nil
+    expect(connection.refs.first.failing_since).to be_present
   end
 
   it "cooks untrusted titles without autolinks, hashtags, mentions or HTML" do
@@ -408,5 +412,81 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     announce
     expect(connection.events.where(kind: "recovery")).to be_empty
     expect(Chat::Message.where(chat_channel: channel).count).to eq(1)
+  end
+  it "silences a same-window failure when green with recovery disabled" do
+    connection.update!(enabled_events: %w[failure ci issue_opened])
+    workflow
+    workflow(status: "success", run_attempt: 2)
+    repo_process(connection, repo_parse(connection, "github_issues", "issues"))
+    announce
+    expect(Chat::Message.where(chat_channel: channel).sole.message).to include(
+      "Bug in solver"
+    )
+    expect(
+      Chat::Message.where(chat_channel: channel).sole.message
+    ).not_to include("CI failing")
+    expect(
+      connection.events.where(kind: "failure", loud: true, chat_message_id: nil)
+    ).to be_empty
+  end
+
+  it "preserves the existing failure SHA when an edit has no failure event SHA" do
+    workflow
+    announce
+    message = Chat::Message.where(chat_channel: channel).sole
+    workflow(status: "success", run_attempt: 2)
+    connection.update!(enabled_events: %w[failure])
+    announce
+    expect(message.reload.message).to include("aaaaaaaa")
+    expect(message.message).not_to include("()")
+  end
+
+  it "keeps posted incident state through transient channel inactivity" do
+    workflow
+    announce
+    message = Chat::Message.where(chat_channel: channel).sole
+    workflow(id: 113)
+    channel.update!(status: :closed)
+    announce
+    expect(connection.refs.first.failure_message_id).to eq(message.id)
+    expect(connection.refs.first.failing_since).to be_present
+    channel.update!(status: :open)
+    workflow(id: 114)
+    announce
+    expect(Chat::Message.where(chat_channel: channel).count).to eq(1)
+    workflow(status: "success", id: 114, run_attempt: 2)
+    announce
+    expect(
+      Chat::Message.where(chat_channel: channel).order(:id).last.in_reply_to_id
+    ).to eq(message.id)
+  end
+
+  it "cooks display and branch names as literal code without links or emoji" do
+    name = "evil.com www.evil.com https://evil.com :smile: @all #tag `code`"
+    connection.update!(display_name: name)
+    workflow
+    ref = connection.refs.first
+    ref.update!(ref_name: name)
+    connection
+      .events
+      .where(kind: "failure")
+      .each do |event|
+        event.update!(summary: event.summary.merge("ref" => name))
+      end
+    announce
+    message = Chat::Message.where(chat_channel: channel).sole
+    fragment =
+      Nokogiri::HTML5.fragment(
+        Chat::Message.cook(
+          message.message,
+          user_id: bot.id,
+          chat_channel: channel
+        )
+      )
+    expect(
+      fragment.css("a, img, .emoji, .mention, .hashtag, .onebox")
+    ).to be_empty
+    expect(fragment.css("code").map(&:text).join).to include(name)
+    expect(message.message).not_to include("\u200b")
   end
 end

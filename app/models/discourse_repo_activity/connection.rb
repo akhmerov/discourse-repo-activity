@@ -93,7 +93,6 @@ module DiscourseRepoActivity
 
     def discard_pending!
       events.where(loud: true, chat_message_id: nil).update_all(loud: false)
-      refs.update_all(failing_since: nil, failure_message_id: nil)
     end
 
     private
