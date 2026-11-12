@@ -65,7 +65,11 @@ module DiscourseRepoActivity
       when "workflow_run"
         run = p["workflow_run"] || {}
         return if run["workflow_id"].blank?
-        pr = Array(run["pull_requests"]).find { |item| item["number"].present? }
+        pr =
+          Array(run["pull_requests"]).find do |item|
+            item["number"].present? &&
+              item.dig("base", "repo", "id") == p.dig("repository", "id")
+          end
         foreign =
           run.dig("head_repository", "id").present? &&
             run.dig("head_repository", "id") != p.dig("repository", "id")
@@ -282,15 +286,7 @@ module DiscourseRepoActivity
       # Never turn attacker-controlled webhook links into off-forge or script links.
       if uri.scheme == "https" && uri.userinfo.nil? &&
            uri.host == @connection.host.split(":").first &&
-           (
-             if @connection.forge == "github"
-               uri.path.downcase.start_with?(
-                 "/#{@connection.repo_path.downcase}/"
-               )
-             else
-               uri.path.start_with?("/#{@connection.repo_path}/")
-             end
-           )
+           uri.path.downcase.start_with?("/#{@connection.repo_path.downcase}/")
         uri.to_s
       end
     rescue URI::InvalidURIError

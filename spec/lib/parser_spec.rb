@@ -80,7 +80,13 @@ RSpec.describe DiscourseRepoActivity::Parser do
         github,
         "github_workflow_run",
         "workflow_run",
-        { "workflow_run" => { "pull_requests" => [{ "number" => 8 }] } }
+        {
+          "workflow_run" => {
+            "pull_requests" => [
+              { "number" => 8, "base" => { "repo" => { "id" => 42 } } }
+            ]
+          }
+        }
       )
     gitlab_run =
       repo_parse(
@@ -139,7 +145,12 @@ RSpec.describe DiscourseRepoActivity::Parser do
           github,
           "github_workflow_run",
           "workflow_run",
-          "workflow_run" => run.merge("pull_requests" => [{ "number" => 8 }])
+          "workflow_run" =>
+            run.merge(
+              "pull_requests" => [
+                { "number" => 8, "base" => { "repo" => { "id" => 42 } } }
+              ]
+            )
         )
       expect(parsed).to include(ref_kind: "pr", ref_name: "pr/8")
     end
@@ -203,5 +214,37 @@ RSpec.describe DiscourseRepoActivity::Parser do
         }
       )
     ).to be_nil
+  end
+  it "ignores fork-base PR entries on upstream branch workflows" do
+    parsed =
+      repo_parse(
+        github,
+        "github_workflow_run",
+        "workflow_run",
+        "workflow_run" => {
+          "pull_requests" => [
+            { "number" => 9, "base" => { "repo" => { "id" => 99 } } }
+          ]
+        }
+      )
+    expect(parsed).to include(ref_kind: "branch", ref_name: "main")
+  end
+
+  it "accepts mixed-case GitLab repository paths but rejects neighboring repositories" do
+    %w[
+      https://gitlab.tudelft.nl/Group/Nested/Sim-Tools/-/issues/1
+      https://gitlab.tudelft.nl/Group/Nested/Sim-Tools-other/-/issues/1
+    ].each_with_index do |url, index|
+      parsed =
+        repo_parse(
+          gitlab,
+          "gitlab_issue",
+          "Issue Hook",
+          "object_attributes" => {
+            "url" => url
+          }
+        )
+      expect(parsed[:summary][:url]).to eq(index.zero? ? url : nil)
+    end
   end
 end
