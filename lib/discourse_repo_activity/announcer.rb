@@ -46,7 +46,12 @@ module DiscourseRepoActivity
               )
             unless message
               if events.any? { |e| e.kind == "recovery" }
-                ref.update!(failure_message_id: nil, failing_since: nil)
+                # A later failure in this window still needs its incident marker
+                # so the next successful build can edit and recover the alert.
+                ref.update!(
+                  failure_message_id: nil,
+                  failing_since: ref.ci_state == "success" ? nil : ref.failing_since
+                )
                 # A same-window failure can still produce its initial alert.
                 unless events.any? { |e| e.kind == "failure" }
                   events.each { |e| e.update!(loud: false) }

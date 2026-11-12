@@ -86,6 +86,23 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(connection.refs.first.failure_message_id).to be_nil
   end
 
+  it "retains the incident when recovery and a new failure share the first announcement" do
+    workflow(id: 200)
+    workflow(status: "success", id: 201)
+    workflow(sha: "b" * 40, id: 202)
+    announce
+    message = Chat::Message.where(chat_channel: channel, user: bot).sole
+    expect(message.message).to include("CI failing", "bbbbbbbb")
+    expect(connection.refs.first.failing_since).to be_present
+    workflow(sha: "b" * 40, status: "success", id: 203)
+    announce
+    expect(message.reload.message).to include("fixed in ` bbbbbbbb `")
+    reply = Chat::Message.where(chat_channel: channel, user: bot).order(:id).last
+    expect(reply.in_reply_to_id).to eq(message.id)
+    expect(reply.thread_id).to be_present
+    expect(connection.refs.first.failure_message_id).to be_nil
+  end
+
   it "mentions only visible channel members with matching logins" do
     channel.user_chat_channel_memberships.where(user: alice).delete_all
     repo_process(connection, repo_parse(connection, "github_push", "push"))
@@ -174,6 +191,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
       "<script>"
     )
   end
+
   it "preserves coalesced text when editing after event pruning" do
     repo_process(connection, repo_parse(connection, "github_issues", "issues"))
     repo_process(connection, repo_parse(connection, "github_push", "push"))
@@ -227,6 +245,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     ).to be_empty
     expect(connection.refs.first.failing_since).to be_nil
   end
+
   it "fits busy announcement windows within Chat's length limit" do
     SiteSetting.chat_maximum_message_length = 1000
     6.times do
@@ -247,6 +266,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(message.message).to include("CI failing", "more events")
     expect(connection.events.where(chat_message_id: message.id).count).to eq(7)
   end
+
   it "drops recovery when its failure message was deleted and clears the incident" do
     workflow
     announce
@@ -391,6 +411,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     announce
     expect(Chat::Message.where(chat_channel: channel)).to be_empty
   end
+
   it "uses the failure event sha when editing an existing alert after a newer push" do
     workflow
     announce
@@ -413,6 +434,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(connection.events.where(kind: "recovery")).to be_empty
     expect(Chat::Message.where(chat_channel: channel).count).to eq(1)
   end
+
   it "silences a same-window failure when green with recovery disabled" do
     connection.update!(enabled_events: %w[failure ci issue_opened])
     workflow
