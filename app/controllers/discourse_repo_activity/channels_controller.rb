@@ -26,6 +26,16 @@ module DiscourseRepoActivity
         channel_id: @channel.id,
         event_id: id
       )
+      seen =
+        ChannelRead.find_by!(
+          user_id: current_user.id,
+          chat_channel_id: @channel.id
+        ).last_seen_event_id
+      MessageBus.publish(
+        "/repo-activity/#{@channel.id}",
+        { last_seen_event_id: seen },
+        user_ids: [current_user.id]
+      )
       render json: success_json
     end
 

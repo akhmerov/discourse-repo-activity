@@ -26,6 +26,7 @@ module DiscourseRepoActivity
         :enabled_events
       )
       save_and_render(connection)
+      Snapshot.publish(@channel) if connection.errors.empty?
     end
 
     def update
@@ -36,6 +37,7 @@ module DiscourseRepoActivity
         )
         save_and_render(connection)
       end
+      Snapshot.publish(@channel) if connection.errors.empty?
     end
 
     def rotate
@@ -44,6 +46,7 @@ module DiscourseRepoActivity
         connection.secret_version += 1
         save_and_render(connection)
       end
+      Snapshot.publish(@channel) if connection.errors.empty?
     end
 
     def destroy
@@ -78,7 +81,6 @@ module DiscourseRepoActivity
 
     def save_and_render(connection)
       if connection.save
-        Snapshot.publish(@channel)
         response.headers["Cache-Control"] = "no-store"
         render json: connection.management_json
       else

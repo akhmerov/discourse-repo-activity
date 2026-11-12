@@ -103,4 +103,34 @@ RSpec.describe "Repository activity pill" do
       ".repo-activity__pill, .repo-activity__settings"
     )
   end
+  it "merges a read from another device and preserves newer unread events" do
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    expect(page).to have_css(".repo-activity__pill", text: "1 new")
+    MessageBus.publish(
+      "/repo-activity/#{channel.id}",
+      { last_seen_event_id: activity.id },
+      user_ids: [user.id]
+    )
+    expect(page).to have_no_css(".repo-activity__pill", text: "1 new")
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "push",
+      summary: {
+        title: "Newer push"
+      }
+    )
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
+    expect(page).to have_css(".repo-activity__pill", text: "1 new")
+    MessageBus.publish(
+      "/repo-activity/#{channel.id}",
+      { last_seen_event_id: 0 },
+      user_ids: [user.id]
+    )
+    find(".repo-activity__pill").click
+    expect(page).to have_css(".repo-activity__event--new", text: "Newer push")
+    expect(page).to have_no_css(
+      ".repo-activity__event--new",
+      text: "Push to main"
+    )
+  end
 end

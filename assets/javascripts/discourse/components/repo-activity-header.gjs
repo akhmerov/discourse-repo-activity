@@ -60,11 +60,22 @@ export default class RepoActivityHeader extends Component {
   @action
   receive(data) {
     if (!this.isDestroying && !this.isDestroyed) {
-      const seen = this.data?.last_seen_event_id || 0;
+      const seen = Math.max(
+        this.data?.last_seen_event_id || 0,
+        data.last_seen_event_id || 0
+      );
+      const eventIds =
+        data.event_ids ||
+        this.data?.event_ids ||
+        this.data?.repos.flatMap((repo) =>
+          repo.events.map((event) => event.id)
+        ) ||
+        [];
       this.data = {
         ...this.data,
         ...data,
-        new_count: data.event_ids.filter((id) => id > seen).length,
+        last_seen_event_id: seen,
+        new_count: eventIds.filter((id) => id > seen).length,
       };
     }
   }

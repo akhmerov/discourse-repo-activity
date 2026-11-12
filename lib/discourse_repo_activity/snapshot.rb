@@ -110,11 +110,11 @@ module DiscourseRepoActivity
       payload =
         self.for(channel).except(:last_seen_event_id, :new_count, :can_manage)
       payload[:event_ids] = Event.where(chat_channel_id: channel.id).pluck(:id)
-      MessageBus.publish(
-        "/repo-activity/#{channel.id}",
-        payload,
-        **Chat::Publisher.permissions(channel)
-      )
+      permissions = Chat::Publisher.permissions(channel)
+      permissions = {
+        group_ids: Chat.message_bus_allowed_group_ids
+      } if permissions.empty?
+      MessageBus.publish("/repo-activity/#{channel.id}", payload, **permissions)
     end
   end
 end

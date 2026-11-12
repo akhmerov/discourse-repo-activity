@@ -20,6 +20,7 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
   before do
     SiteSetting.chat_enabled = true
     SiteSetting.chat_allowed_groups = Group::AUTO_GROUPS[:everyone]
+    Group.refresh_automatic_group!(:trust_level_0)
     group.add(member)
     channel.add(member)
   end
@@ -112,5 +113,57 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
       .with(regexp_matches(/connection #{connection.id}/))
     Rails.logger.expects(:warn).with(regexp_matches(/connection #{other.id}/))
     expect { Jobs::RepoActivityPrune.new.execute({}) }.not_to raise_error
+  end
+  def bus_client(user)
+    MessageBus::Client.new(
+      client_id: "user-#{user.id}",
+      user_id: user.id,
+      group_ids:
+        Chat.message_bus_group_ids_for(
+          User.find(user.id).belonging_to_group_ids
+        ),
+      message_bus: MessageBus
+    )
+  end
+
+  def receives_payload?(user, message)
+    client = bus_client(user)
+    client.site_id = RailsMultisite::ConnectionManagement.current_db
+    client.subscribe(message.channel, message.message_id - 1)
+    client.backlog.any? { |delivered| delivered.channel == message.channel }
+  end
+
+  it "filters delivery to current category members and excludes removed members" do
+    message =
+      MessageBus
+        .track_publish("/repo-activity/#{channel.id}") do
+          described_class.publish_now(channel)
+        end
+        .sole
+    expect(receives_payload?(member, message)).to eq(true)
+    expect(receives_payload?(outsider, message)).to eq(false)
+    group.remove(member)
+    expect(receives_payload?(member, message)).to eq(false)
+  end
+
+  it "filters anonymous clients even when native public chat publication is global" do
+    public_channel = Fabricate(:chat_channel)
+    SiteSetting.enable_public_channels = true
+    SiteSetting.chat_allowed_groups =
+      "#{Group::AUTO_GROUPS[:everyone]}|#{Group::AUTO_GROUPS[:anonymous_users]}"
+    expect(Chat::Publisher.permissions(public_channel)).to eq({})
+    message =
+      MessageBus
+        .track_publish("/repo-activity/#{public_channel.id}") do
+          described_class.publish_now(public_channel)
+        end
+        .sole
+    expect(
+      MessageBus::Client.new(
+        client_id: "anonymous",
+        message_bus: MessageBus
+      ).allowed?(message)
+    ).to eq(false)
+    expect(bus_client(member).allowed?(message)).to eq(true)
   end
 end

@@ -109,4 +109,51 @@ RSpec.describe "Repository management" do
       )
     ).to be_empty
   end
+  it "publishes monotone read acknowledgements only to the reading user" do
+    event = connection.events.create!(chat_channel_id: channel.id, kind: "push")
+    sign_in(member)
+    messages =
+      MessageBus.track_publish("/repo-activity/#{channel.id}") do
+        [event.id, 0].each do |id|
+          put "/repo-activity/channels/#{channel.id}/read.json",
+              params: {
+                last_seen_event_id: id
+              }
+          expect(response.status).to eq(200)
+        end
+      end
+    expect(messages.size).to eq(2)
+    messages.each do |message|
+      expect(message.data).to eq(last_seen_event_id: event.id)
+      expect(message.user_ids).to eq([member.id])
+      expect(
+        MessageBus::Client.new(
+          client_id: "other",
+          user_id: admin.id,
+          message_bus: MessageBus
+        ).allowed?(message)
+      ).to eq(false)
+    end
+  end
+
+  it "schedules update and rotation publication after leaving the row lock" do
+    sign_in(admin)
+    baseline = DiscourseRepoActivity::Connection.connection.open_transactions
+    DiscourseRepoActivity::Snapshot
+      .expects(:publish)
+      .with do |published_channel|
+        expect(
+          DiscourseRepoActivity::Connection.connection.open_transactions
+        ).to eq(baseline)
+        published_channel.id == channel.id
+      end
+      .twice
+    put "/repo-activity/channels/#{channel.id}/connections/#{connection.id}.json",
+        params: {
+          enabled: false
+        }
+    expect(response.status).to eq(200)
+    post "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/rotate.json"
+    expect(response.status).to eq(200)
+  end
 end
