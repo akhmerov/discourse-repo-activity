@@ -1,0 +1,16 @@
+{
+  "object_kind": "release",
+  "action": "create",
+  "name": "Version 1",
+  "tag": "v1.0",
+  "description": "Private release notes",
+  "project": {
+    "id": 42,
+    "path_with_namespace": "group/nested/sim-tools",
+    "default_branch": "main",
+    "web_url": "https://gitlab.tudelft.nl/group/nested/sim-tools"
+  },
+  "user": {
+    "username": "alice"
+  }
+}

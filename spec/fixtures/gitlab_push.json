@@ -1,0 +1,24 @@
+{
+  "object_kind": "push",
+  "event_name": "push",
+  "ref": "refs/heads/main",
+  "before": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "after": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "checkout_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "user_username": "alice",
+  "user_name": "Alice",
+  "project": {
+    "id": 42,
+    "path_with_namespace": "group/nested/sim-tools",
+    "default_branch": "main",
+    "web_url": "https://gitlab.tudelft.nl/group/nested/sim-tools"
+  },
+  "commits": [
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "message": "Fix solver\nPrivate body",
+      "url": "https://gitlab.tudelft.nl/group/nested/sim-tools/-/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "total_commits_count": 1
+}

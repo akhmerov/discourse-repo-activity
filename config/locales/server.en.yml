@@ -1,0 +1,3 @@
+en:
+  site_settings:
+    repo_activity_enabled: "Receive repository activity in chat channels"

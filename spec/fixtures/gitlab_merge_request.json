@@ -1,0 +1,26 @@
+{
+  "object_kind": "merge_request",
+  "user": {
+    "username": "alice"
+  },
+  "project": {
+    "id": 42,
+    "path_with_namespace": "group/nested/sim-tools",
+    "default_branch": "main",
+    "web_url": "https://gitlab.tudelft.nl/group/nested/sim-tools"
+  },
+  "object_attributes": {
+    "id": 223,
+    "iid": 8,
+    "action": "open",
+    "state": "opened",
+    "title": "Improve solver",
+    "description": "Private MR body",
+    "source_branch": "feature",
+    "target_branch": "main",
+    "last_commit": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "url": "https://gitlab.tudelft.nl/group/nested/sim-tools/-/merge_requests/8"
+  }
+}

@@ -1,0 +1,126 @@
+# frozen_string_literal: true
+
+module DiscourseRepoActivity
+  module Snapshot
+    def self.for(channel, user = nil)
+      message_bus_last_id = MessageBus.last_id("/repo-activity/#{channel.id}")
+      seen =
+        user &&
+          ChannelRead.find_by(
+            user_id: user.id,
+            chat_channel_id: channel.id
+          )&.last_seen_event_id
+      # Fetch each repository's own recent window: a noisy repository must not
+      # hide a quieter repository's history from the channel snapshot.
+      events = Event.find_by_sql([<<~SQL, channel.id])
+        SELECT * FROM (
+          SELECT repo_activity_events.*,
+                 row_number() OVER (PARTITION BY connection_id ORDER BY id DESC) AS event_rank
+          FROM repo_activity_events WHERE chat_channel_id = ?
+        ) recent WHERE event_rank <= 50 ORDER BY id DESC
+      SQL
+
+      repos =
+        Connection
+          .where(chat_channel_id: channel.id)
+          .includes(:refs)
+          .map do |c|
+            refs =
+              c.refs.map do |r|
+                r.attributes.slice(
+                  "ref_name",
+                  "kind",
+                  "pr_number",
+                  "head_sha",
+                  "pushed_by_login",
+                  "ci_state",
+                  "ci_runs",
+                  "updated_at"
+                )
+              end
+            recent = events.select { |e| e.connection_id == c.id }.first(50)
+            default_ref =
+              refs.find do |r|
+                r["kind"] == "branch" && r["ref_name"] == c.default_branch
+              end
+            {
+              id: c.id,
+              display_name: c.display_name,
+              url: c.repository_url,
+              enabled: c.enabled,
+              default_branch: c.default_branch,
+              default_ref: default_ref,
+              refs: refs,
+              failing: default_ref&.dig("ci_state") == "failed",
+              last_activity_at: recent.first&.created_at,
+              pushes_today: Event.pushes_today(c.id),
+              events:
+                recent.map do |e|
+                  e.attributes.slice(
+                    "id",
+                    "kind",
+                    "actor_login",
+                    "summary",
+                    "created_at"
+                  )
+                end
+            }
+          end
+      {
+        repos:
+          repos.sort_by do |r|
+            [r[:failing] ? 0 : 1, -(r[:last_activity_at]&.to_f || 0)]
+          end,
+        message_bus_last_id: message_bus_last_id,
+        last_seen_event_id: seen.to_i,
+        latest_event_id: events.first&.id || 0,
+        new_count:
+          (
+            if user
+              Event
+                .where(chat_channel_id: channel.id)
+                .where("id > ?", seen.to_i)
+                .count
+            else
+              nil
+            end
+          ),
+        can_manage: user && DiscourseRepoActivity.can_manage?(channel, user)
+      }
+    end
+
+    def self.publish(channel)
+      return if channel.nil? || channel.trashed?
+      # No global broadcasts, including for public workspace categories. Filter the
+      # actual chat audience, including custom Guardian restrictions from plugins.
+      audience =
+        User
+          .real
+          .activated
+          .where(staged: false)
+          .select { |u| DiscourseRepoActivity.can_view?(channel, u) }
+      return if audience.empty?
+      snapshot = self.for(channel)
+      reads =
+        ChannelRead
+          .where(chat_channel_id: channel.id)
+          .pluck(:user_id, :last_seen_event_id)
+          .to_h
+      event_ids = Event.where(chat_channel_id: channel.id).pluck(:id)
+      audience.each do |user|
+        seen = reads[user.id].to_i
+        payload =
+          snapshot.merge(
+            last_seen_event_id: seen,
+            new_count: event_ids.count { |id| id > seen },
+            can_manage: DiscourseRepoActivity.can_manage?(channel, user)
+          )
+        MessageBus.publish(
+          "/repo-activity/#{channel.id}",
+          payload,
+          user_ids: [user.id]
+        )
+      end
+    end
+  end
+end

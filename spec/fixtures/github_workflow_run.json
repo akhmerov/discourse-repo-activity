@@ -1,0 +1,35 @@
+{
+  "action": "completed",
+  "repository": {
+    "id": 42,
+    "full_name": "acme/sim-tools",
+    "name": "sim-tools",
+    "default_branch": "main",
+    "html_url": "https://github.com/acme/sim-tools"
+  },
+  "sender": {
+    "login": "alice"
+  },
+  "workflow_run": {
+    "id": 112,
+    "name": "Tests",
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "failure",
+    "head_branch": "main",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "html_url": "https://github.com/acme/sim-tools/actions/runs/112",
+    "pull_requests": [],
+    "actor": {
+      "login": "runner"
+    },
+    "head_commit": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "message": "Fix solver",
+      "author": {
+        "name": "Alice",
+        "email": "alice@example.com"
+      }
+    }
+  }
+}

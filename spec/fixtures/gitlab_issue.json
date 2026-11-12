@@ -1,0 +1,20 @@
+{
+  "object_kind": "issue",
+  "user": {
+    "username": "alice"
+  },
+  "project": {
+    "id": 42,
+    "path_with_namespace": "group/nested/sim-tools",
+    "default_branch": "main",
+    "web_url": "https://gitlab.tudelft.nl/group/nested/sim-tools"
+  },
+  "object_attributes": {
+    "id": 224,
+    "iid": 9,
+    "action": "open",
+    "title": "Bug in solver",
+    "description": "Private issue body",
+    "url": "https://gitlab.tudelft.nl/group/nested/sim-tools/-/issues/9"
+  }
+}

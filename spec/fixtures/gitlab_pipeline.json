@@ -1,0 +1,29 @@
+{
+  "object_kind": "pipeline",
+  "user": {
+    "username": "alice",
+    "name": "Alice"
+  },
+  "project": {
+    "id": 42,
+    "path_with_namespace": "group/nested/sim-tools",
+    "default_branch": "main",
+    "web_url": "https://gitlab.tudelft.nl/group/nested/sim-tools"
+  },
+  "object_attributes": {
+    "id": 45,
+    "ref": "main",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "failed",
+    "source": "push",
+    "url": "https://gitlab.tudelft.nl/group/nested/sim-tools/-/pipelines/45"
+  },
+  "builds": [
+    {
+      "id": 123,
+      "name": "test",
+      "stage": "test",
+      "status": "failed"
+    }
+  ]
+}

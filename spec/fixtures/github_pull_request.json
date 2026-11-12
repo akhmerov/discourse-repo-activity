@@ -1,0 +1,28 @@
+{
+  "action": "opened",
+  "number": 8,
+  "repository": {
+    "id": 42,
+    "full_name": "acme/sim-tools",
+    "name": "sim-tools",
+    "default_branch": "main",
+    "html_url": "https://github.com/acme/sim-tools"
+  },
+  "sender": {
+    "login": "alice"
+  },
+  "pull_request": {
+    "number": 8,
+    "title": "Improve solver",
+    "body": "Private PR body",
+    "html_url": "https://github.com/acme/sim-tools/pull/8",
+    "merged": false,
+    "head": {
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ref": "feature"
+    },
+    "base": {
+      "ref": "main"
+    }
+  }
+}

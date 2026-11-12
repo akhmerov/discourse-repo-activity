@@ -1,0 +1,20 @@
+{
+  "action": "published",
+  "repository": {
+    "id": 42,
+    "full_name": "acme/sim-tools",
+    "name": "sim-tools",
+    "default_branch": "main",
+    "html_url": "https://github.com/acme/sim-tools"
+  },
+  "sender": {
+    "login": "alice"
+  },
+  "release": {
+    "id": 12,
+    "name": "Version 1",
+    "tag_name": "v1.0",
+    "body": "Private release notes",
+    "html_url": "https://github.com/acme/sim-tools/releases/tag/v1.0"
+  }
+}
