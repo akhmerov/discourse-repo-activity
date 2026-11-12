@@ -12,18 +12,24 @@ module DiscourseRepoActivity
     def create
       connection = Connection.find_by(public_id: params[:public_id])
       raise Discourse::NotFound unless connection&.active_channel?
+      body = request.body.read(MAX_BODY + 1)
+      return head :payload_too_large if body.bytesize > MAX_BODY
+      unless Signature.valid?(connection, body, request.headers)
+        RateLimiter.new(
+          nil,
+          "repo-activity:invalid:#{connection.id}:#{request.remote_ip}",
+          120,
+          1.minute
+        ).performed!
+        record_error(connection, "Invalid signature")
+        return head :unauthorized
+      end
       RateLimiter.new(
         nil,
         "repo-activity:#{connection.id}",
         120,
         1.minute
       ).performed!
-      body = request.body.read(MAX_BODY + 1)
-      return head :payload_too_large if body.bytesize > MAX_BODY
-      unless Signature.valid?(connection, body, request.headers)
-        record_error(connection, "Invalid signature")
-        return head :unauthorized
-      end
       delivery =
         request.headers[
           (
@@ -78,6 +84,7 @@ module DiscourseRepoActivity
         Discourse.redis.del(key)
         raise
       end
+      Discourse.redis.del("repo-activity:error:#{connection.id}")
       Snapshot.publish(connection.chat_channel)
       head :ok
     end

@@ -165,8 +165,26 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     expect(response.status).to eq(429)
     expect(connection.events.count).to eq(0)
   end
-  it "limits invalid signatures before verification and throttles error writes" do
+  it "isolates invalid signatures from authenticated delivery capacity" do
     RateLimiter.enable
+    120.times { deliver(signature: :invalid) }
+    expect(response.status).to eq(401)
+    deliver(signature: :invalid)
+    expect(response.status).to eq(429)
+    deliver
+    expect(response.status).to eq(200)
+    expect(connection.events.count).to eq(1)
+  end
+
+  it "records a new error immediately after a successful delivery clears one" do
+    deliver(signature: :invalid)
+    expect(connection.reload.last_delivery_error).to eq("Invalid signature")
+    deliver
+    expect(connection.reload.last_delivery_error).to be_nil
+    deliver(signature: :invalid)
+    expect(connection.reload.last_delivery_error).to eq("Invalid signature")
+  end
+  it "throttles repeated invalid-signature error writes" do
     connection
       .class
       .any_instance
@@ -175,16 +193,5 @@ RSpec.describe DiscourseRepoActivity::HooksController do
       .once
     2.times { deliver(signature: :invalid) }
     expect(response.status).to eq(401)
-    118.times do
-      RateLimiter.new(
-        nil,
-        "repo-activity:#{connection.id}",
-        120,
-        1.minute
-      ).performed!
-    end
-    DiscourseRepoActivity::Signature.expects(:valid?).never
-    deliver(signature: :invalid)
-    expect(response.status).to eq(429)
   end
 end
