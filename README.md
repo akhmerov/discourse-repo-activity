@@ -18,6 +18,7 @@ secret into the forge's webhook settings. Use JSON and SSL verification.
 * GitHub: Pushes, Workflow runs, Pull requests, Issues, Releases.
 * GitLab: Push, Tag push, Pipeline, Merge request, Issues, Release events.
 
+Connections are restricted to category channels; direct messages are excluded.
 The management dialog contains per-event toggles, an enable switch, secret
 regeneration, removal, and the last delivery/error. Regeneration invalidates the
 old secret immediately. Secret values are shown only in authorized management
@@ -32,7 +33,9 @@ last opened the popover. Opening acknowledges only the displayed event cursor;
 newer concurrent events remain new. Desktop uses a popover and mobile a native
 menu dialog. One snapshot request initializes the channel; permission-filtered
 MessageBus updates then refresh it, using a snapshot cursor to cover races
-before the first poll.
+before the first poll. Updates are debounced per channel in a background job and
+use native Chat publisher permissions. Unread counts are computed in the client;
+management permissions come only from the authenticated snapshot.
 
 The popover lists failures first, followed by recent activity, including branch
 state, SHA, pusher, failed workflows/jobs, PR/MR pipelines, pushes today, and
@@ -46,18 +49,23 @@ announcement preserves failure status and as many titles/links as fit, with an
 overflow count pointing readers to the popover. Further failures
 edit the same alert. Recovery edits it to `fixed in <sha>` and adds a short
 thread reply. A quick failure/recovery pair is coalesced into its recovered
-state with a thread reply. The initial failure mentions a pusher only when a
+state with a thread reply. If the prior failure message was deleted, a lone
+recovery is discarded and the incident is cleared. Failure and recovery toggles
+are independent of quiet CI recording; ref state is always tracked. The initial failure mentions a pusher only when a
 push webhook supplied a case-insensitive matching Discourse username, that
-user can see the channel and has channel membership. Titles are escaped so
-forge content cannot inject mentions. Bodies, diffs and release notes never
+user can see the channel and has channel membership. Titles are rendered as inline code so
+forge content cannot inject links, oneboxes, hashtags or mentions. Bodies, diffs and release notes never
 enter chat. Only pushes retain the first line of the final commit message in
 the quiet summary, as well as SHA and commit count.
 
 GitHub CI combines workflow runs **seen for a commit**: any failed run is red,
-all successful runs are green, otherwise running. This receive-only estimate
+successful runs (with any neutral runs) are green, all neutral runs are shown
+as cancelled/skipped, otherwise running. Workflows are keyed by workflow ID,
+not display name. Cancelled and skipped runs are neutral. This receive-only estimate
 cannot know about workflows that have not delivered webhooks. Rerun IDs and
 attempts prevent late queued/running deliveries from reverting terminal states.
-GitLab merge-request pipelines are separate from default-branch pipelines.
+GitHub PR/fork workflows never update branch refs; unidentified PR workflows
+are skipped. GitLab merge-request pipelines without an MR number are skipped.
 
 ## Security and lifecycle
 
@@ -67,10 +75,18 @@ of the secret. Secrets are derived with HMAC from the application secret key,
 connection ID and secret version; no connection secret is stored. Changing the
 server secret key invalidates all webhook secrets.
 
-Authenticated deliveries are limited to 120 per connection per minute and
+All requests to an active connection are limited to 120 per minute before
+signature verification; delivery errors are written at most once per minute.
+
 Redis delivery IDs expire after 24 hours. Unsupported events/actions receive
 2xx. Disabled connections and missing, archived, read-only or closed channels
 reject deliveries without persisting them. Delayed jobs recheck channel state.
+Disabling a connection discards pending announcements and incident bookkeeping;
+re-enabling does not replay them. Pending work found on an inactive channel is
+also discarded. Announcement scheduling uses an expiring Redis key so a stalled
+event cannot block later events indefinitely. Idle PR and non-default branch
+refs are pruned after 14 days. A failed connection does not abort the daily
+prune for other connections.
 Webhook request parameters are excluded from Rails' action log. There is no raw
 payload debug mode. Links must use HTTPS and the configured repository host/path.
 
