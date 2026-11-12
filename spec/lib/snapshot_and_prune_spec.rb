@@ -166,4 +166,17 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
     ).to eq(false)
     expect(bus_client(member).allowed?(message)).to eq(true)
   end
+
+  it "publishes nothing when the public-channel fallback has no groups" do
+    public_channel = Fabricate(:chat_channel)
+    allow(Chat::Publisher).to receive(:permissions).and_return({})
+    if Chat.respond_to?(:message_bus_allowed_group_ids)
+      allow(Chat).to receive(:message_bus_allowed_group_ids).and_return([])
+    end
+    messages =
+      MessageBus.track_publish("/repo-activity/#{public_channel.id}") do
+        described_class.publish_now(public_channel)
+      end
+    expect(messages).to be_empty
+  end
 end

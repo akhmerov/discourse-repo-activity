@@ -111,9 +111,19 @@ module DiscourseRepoActivity
         self.for(channel).except(:last_seen_event_id, :new_count, :can_manage)
       payload[:event_ids] = Event.where(chat_channel_id: channel.id).pluck(:id)
       permissions = Chat::Publisher.permissions(channel)
-      permissions = {
-        group_ids: Chat.message_bus_allowed_group_ids
-      } if permissions.empty?
+      if permissions.empty?
+        # Native public-channel publication is global; never broadcast repo
+        # activity to anonymous clients. An empty group list would mean "no
+        # restriction" to MessageBus, so publish nothing in that case.
+        group_ids =
+          if Chat.respond_to?(:message_bus_allowed_group_ids)
+            Chat.message_bus_allowed_group_ids
+          else
+            []
+          end
+        return if group_ids.blank?
+        permissions = { group_ids: group_ids }
+      end
       MessageBus.publish("/repo-activity/#{channel.id}", payload, **permissions)
     end
   end

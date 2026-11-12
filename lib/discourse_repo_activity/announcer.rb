@@ -248,7 +248,9 @@ module DiscourseRepoActivity
     def title_text(value)
       # Code spans disable URL/hashtag/mention and Markdown interpretation.
       # Use a delimiter longer than any backtick run in the untrusted text.
-      title = value.to_s
+      # Collapse whitespace and control characters: a newline would end the
+      # code span and let the rest be interpreted as Markdown.
+      title = value.to_s.gsub(/[[:space:][:cntrl:]]+/, " ").strip
       delimiter = "`" * ((title.scan(/`+/).map(&:length).max || 0) + 1)
       "#{delimiter} #{title} #{delimiter}"
     end

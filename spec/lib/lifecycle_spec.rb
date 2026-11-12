@@ -489,4 +489,15 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(fragment.css("code").map(&:text).join).to include(name)
     expect(message.message).not_to include("\u200b")
   end
+
+  it "keeps newline-containing display names inside the code span" do
+    name = "x\n\n@all [evil](https://evil.example) :smile:\n# h\n> q"
+    text = described_class.new(connection).send(:title_text, name)
+    fragment =
+      Nokogiri::HTML5.fragment(
+        Chat::Message.cook(text, user_id: bot.id, chat_channel: channel)
+      )
+    expect(fragment.css("a, img, .emoji, .mention, h1, blockquote")).to be_empty
+    expect(fragment.css("code").size).to eq(1)
+  end
 end
