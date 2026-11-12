@@ -87,4 +87,26 @@ RSpec.describe "Repository management" do
     expect(response.status).to eq(200)
     expect(connection.reload.enabled_events).to eq([])
   end
+  it "rejects DM connections both through the API and model" do
+    DiscourseRepoActivity::Bot.ensure!
+    dm = Fabricate(:direct_message_channel, users: [admin, member])
+    sign_in(admin)
+    post "/repo-activity/channels/#{dm.id}/connections.json",
+         params: {
+           forge: "github",
+           host: "github.com",
+           repo_path: "acme/private"
+         }
+    expect(response.status).to eq(403)
+    invalid = connection.dup
+    invalid.chat_channel = dm
+    invalid.public_id = SecureRandom.hex(20)
+    expect(invalid).not_to be_valid
+    expect(invalid.errors[:chat_channel]).to be_present
+    expect(
+      dm.user_chat_channel_memberships.where(
+        user_id: DiscourseRepoActivity::Bot.user.id
+      )
+    ).to be_empty
+  end
 end

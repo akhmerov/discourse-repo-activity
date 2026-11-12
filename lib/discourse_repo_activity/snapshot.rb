@@ -91,36 +91,30 @@ module DiscourseRepoActivity
 
     def self.publish(channel)
       return if channel.nil? || channel.trashed?
-      # No global broadcasts, including for public workspace categories. Filter the
-      # actual chat audience, including custom Guardian restrictions from plugins.
-      audience =
-        User
-          .real
-          .activated
-          .where(staged: false)
-          .select { |u| DiscourseRepoActivity.can_view?(channel, u) }
-      return if audience.empty?
-      snapshot = self.for(channel)
-      reads =
-        ChannelRead
-          .where(chat_channel_id: channel.id)
-          .pluck(:user_id, :last_seen_event_id)
-          .to_h
-      event_ids = Event.where(chat_channel_id: channel.id).pluck(:id)
-      audience.each do |user|
-        seen = reads[user.id].to_i
-        payload =
-          snapshot.merge(
-            last_seen_event_id: seen,
-            new_count: event_ids.count { |id| id > seen },
-            can_manage: DiscourseRepoActivity.can_manage?(channel, user)
-          )
-        MessageBus.publish(
-          "/repo-activity/#{channel.id}",
-          payload,
-          user_ids: [user.id]
+      if Discourse.redis.set(
+           "repo-activity:publish:#{channel.id}",
+           "1",
+           nx: true,
+           ex: 1.minute.to_i
+         )
+        Jobs.enqueue_in(
+          1.second,
+          :repo_activity_publish,
+          channel_id: channel.id
         )
       end
+    end
+
+    def self.publish_now(channel)
+      return if channel.nil? || channel.trashed?
+      payload =
+        self.for(channel).except(:last_seen_event_id, :new_count, :can_manage)
+      payload[:event_ids] = Event.where(chat_channel_id: channel.id).pluck(:id)
+      MessageBus.publish(
+        "/repo-activity/#{channel.id}",
+        payload,
+        **Chat::Publisher.permissions(channel)
+      )
     end
   end
 end

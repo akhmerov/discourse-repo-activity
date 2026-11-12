@@ -12,18 +12,18 @@ module DiscourseRepoActivity
     def create
       connection = Connection.find_by(public_id: params[:public_id])
       raise Discourse::NotFound unless connection&.active_channel?
-      body = request.body.read(MAX_BODY + 1)
-      return head :payload_too_large if body.bytesize > MAX_BODY
-      unless Signature.valid?(connection, body, request.headers)
-        record_error(connection, "Invalid signature")
-        return head :unauthorized
-      end
       RateLimiter.new(
         nil,
         "repo-activity:#{connection.id}",
         120,
         1.minute
       ).performed!
+      body = request.body.read(MAX_BODY + 1)
+      return head :payload_too_large if body.bytesize > MAX_BODY
+      unless Signature.valid?(connection, body, request.headers)
+        record_error(connection, "Invalid signature")
+        return head :unauthorized
+      end
       delivery =
         request.headers[
           (
@@ -91,12 +91,13 @@ module DiscourseRepoActivity
     private
 
     def record_error(connection, error)
-      connection.with_lock do
-        connection.chat_channel.with_lock do
-          if connection.active_channel?
-            connection.update!(last_delivery_error: error)
-          end
-        end
+      if Discourse.redis.set(
+           "repo-activity:error:#{connection.id}",
+           "1",
+           nx: true,
+           ex: 1.minute.to_i
+         )
+        connection.update_columns(last_delivery_error: error)
       end
     end
   end

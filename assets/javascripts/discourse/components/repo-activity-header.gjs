@@ -60,7 +60,12 @@ export default class RepoActivityHeader extends Component {
   @action
   receive(data) {
     if (!this.isDestroying && !this.isDestroyed) {
-      this.data = data;
+      const seen = this.data?.last_seen_event_id || 0;
+      this.data = {
+        ...this.data,
+        ...data,
+        new_count: data.event_ids.filter((id) => id > seen).length,
+      };
     }
   }
 
@@ -106,12 +111,15 @@ export default class RepoActivityHeader extends Component {
       });
       if (!this.isDestroying && !this.isDestroyed) {
         const seen = Math.max(this.data.last_seen_event_id, id);
+        const eventIds =
+          this.data.event_ids ||
+          this.data.repos.flatMap((repo) =>
+            repo.events.map((event) => event.id)
+          );
         this.data = {
           ...this.data,
           last_seen_event_id: seen,
-          new_count: this.data.repos
-            .flatMap((repo) => repo.events)
-            .filter((event) => event.id > seen).length,
+          new_count: eventIds.filter((eventId) => eventId > seen).length,
         };
       }
     } catch (error) {
@@ -141,17 +149,17 @@ export default class RepoActivityHeader extends Component {
           >
             <:content>
               <div class="repo-activity__content">
-              <RepoActivityPopover
-                @repos={{this.data.repos}}
-                @highlightSince={{this.highlightSince}}
-              />
-              {{#if this.data.can_manage}}
-                <DButton
-                  @action={{this.manage}}
-                  @label="repo_activity.manage"
-                  class="btn-default repo-activity__manage"
+                <RepoActivityPopover
+                  @repos={{this.data.repos}}
+                  @highlightSince={{this.highlightSince}}
                 />
-              {{/if}}
+                {{#if this.data.can_manage}}
+                  <DButton
+                    @action={{this.manage}}
+                    @label="repo_activity.manage"
+                    class="btn-default repo-activity__manage"
+                  />
+                {{/if}}
               </div>
             </:content>
           </DMenu>

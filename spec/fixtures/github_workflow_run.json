@@ -12,6 +12,7 @@
   },
   "workflow_run": {
     "id": 112,
+    "workflow_id": 7,
     "name": "Tests",
     "run_attempt": 1,
     "status": "completed",

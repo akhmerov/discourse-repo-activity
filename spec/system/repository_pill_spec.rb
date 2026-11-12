@@ -70,8 +70,37 @@ RSpec.describe "Repository activity pill" do
       }
     )
     DiscourseRepoActivity::Snapshot.publish(channel)
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
     expect(page).to have_css(".repo-activity__pill", text: "2 new")
     find(".repo-activity__pill").click
     expect(page).to have_css(".repo-activity__event--new", text: "Second push")
+  end
+  it "preserves management permission and seen state across shared live updates" do
+    user.update!(admin: true)
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    find(".repo-activity__pill").click
+    expect(page).to have_css(".repo-activity__manage")
+    expect(page).to have_no_css(".repo-activity__pill", text: "1 new")
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "push",
+      summary: {
+        title: "Live push"
+      }
+    )
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
+    expect(page).to have_css(".repo-activity__pill", text: "1 new")
+    expect(page).to have_css(".repo-activity__manage")
+    expect(page).to have_css(".repo-activity__event", text: "Live push")
+  end
+
+  it "does not show repository management in a DM" do
+    user.update!(admin: true)
+    dm = Fabricate(:direct_message_channel, users: [user, Fabricate(:user)])
+    visit("/chat/c/-/#{dm.id}")
+    expect(page).to have_css(".c-navbar")
+    expect(page).to have_no_css(
+      ".repo-activity__pill, .repo-activity__settings"
+    )
   end
 end

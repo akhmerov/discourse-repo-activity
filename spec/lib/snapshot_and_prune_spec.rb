@@ -24,24 +24,43 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
     channel.add(member)
   end
 
-  it "publishes only to the current private channel audience" do
+  it "publishes one shared payload with native channel permissions" do
     messages =
       MessageBus.track_publish("/repo-activity/#{channel.id}") do
-        DiscourseRepoActivity::Snapshot.publish(channel)
+        described_class.publish_now(channel)
       end
-    ids = messages.flat_map(&:user_ids)
-    expect(ids).to include(member.id, admin.id)
-    expect(ids).not_to include(outsider.id)
+    expect(messages.size).to eq(1)
+    expect(messages.first.group_ids).to include(
+      "chat-restricted-category-group-#{group.id}"
+    )
+    expect(messages.first.data.keys.map(&:to_s)).not_to include(
+      "can_manage",
+      "new_count",
+      "last_seen_event_id"
+    )
     expect(messages.to_json).not_to include(
       connection.secret,
       connection.public_id
     )
-    group.remove(member)
+  end
+
+  it "debounces publication per channel without enumerating users in the request" do
+    User.expects(:real).never
+    expect do 3.times { described_class.publish(channel) } end.to change {
+      Jobs::RepoActivityPublish.jobs.size
+    }.by(1)
+    connection.events.create!(chat_channel_id: channel.id, kind: "push")
     messages =
       MessageBus.track_publish("/repo-activity/#{channel.id}") do
-        DiscourseRepoActivity::Snapshot.publish(channel)
+        Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
       end
-    expect(messages.flat_map(&:user_ids)).not_to include(member.id)
+    expect(messages.size).to eq(1)
+    expect(messages.first.data[:latest_event_id]).to eq(
+      connection.events.maximum(:id)
+    )
+    expect { described_class.publish(channel) }.to change {
+      Jobs::RepoActivityPublish.jobs.size
+    }.by(1)
   end
 
   it "keeps 50 events and prunes only idle non-default branches" do
@@ -63,8 +82,35 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
     expect(connection.events.maximum(:id)).to eq(newest)
     expect(connection.refs.pluck(:ref_name)).to contain_exactly(
       "main",
-      "recent",
-      "pr/3"
+      "recent"
     )
+  end
+  it "continues pruning subsequent connections when an announcement fails" do
+    SiteSetting.repo_activity_enabled = true
+    other =
+      DiscourseRepoActivity::Connection.create!(
+        chat_channel: channel,
+        created_by: admin,
+        forge: "github",
+        host: "github.com",
+        repo_path: "acme/other"
+      )
+    [connection, other].each do |c|
+      c.events.create!(
+        chat_channel_id: channel.id,
+        kind: "issue_opened",
+        loud: true
+      )
+    end
+    DiscourseRepoActivity::Announcer
+      .any_instance
+      .stubs(:announce)
+      .raises(StandardError)
+    Rails
+      .logger
+      .expects(:warn)
+      .with(regexp_matches(/connection #{connection.id}/))
+    Rails.logger.expects(:warn).with(regexp_matches(/connection #{other.id}/))
+    expect { Jobs::RepoActivityPrune.new.execute({}) }.not_to raise_error
   end
 end

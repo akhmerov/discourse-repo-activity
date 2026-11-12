@@ -14,6 +14,7 @@ const EVENTS = [
   "push",
   "ci",
   "failure",
+  "recovery",
   "release",
   "tag",
   "pr_opened",

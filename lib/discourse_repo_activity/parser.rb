@@ -64,7 +64,18 @@ module DiscourseRepoActivity
         }
       when "workflow_run"
         run = p["workflow_run"] || {}
-        pr = Array(run["pull_requests"]).first
+        return if run["workflow_id"].blank?
+        pr = Array(run["pull_requests"]).find { |item| item["number"].present? }
+        foreign =
+          run.dig("head_repository", "id").present? &&
+            run.dig("head_repository", "id") != p.dig("repository", "id")
+        if !pr &&
+             (
+               foreign ||
+                 %w[pull_request pull_request_target].include?(run["event"])
+             )
+          return
+        end
         {
           kind: "ci",
           actor:
@@ -76,6 +87,7 @@ module DiscourseRepoActivity
           sha: run["head_sha"],
           ci_state: state(run["conclusion"].presence || run["status"]),
           run_name: text(run["name"].presence || "Workflow", 100),
+          run_key: run["workflow_id"].to_s,
           run_id: run["id"].to_i,
           run_attempt: run["run_attempt"].to_i,
           summary: {
@@ -170,11 +182,11 @@ module DiscourseRepoActivity
           p.dig("merge_request", "iid") || attrs["merge_request_iid"] ||
             attrs["ref"].to_s[%r{merge-requests/(\d+)}, 1]
         pr = number.present? || attrs["source"] == "merge_request_event"
+        return if pr && number.blank?
         {
           kind: "ci",
           actor: actor,
-          ref_name:
-            pr ? "pr/#{number || "pipeline-#{attrs["id"]}"}" : attrs["ref"],
+          ref_name: pr ? "pr/#{number}" : attrs["ref"],
           ref_kind: pr ? "pr" : "branch",
           pr_number: number&.to_i,
           sha: attrs["sha"],
@@ -242,11 +254,13 @@ module DiscourseRepoActivity
 
     def state(value)
       case value
-      when "failure", "failed", "timed_out", "cancelled", "canceled",
-           "action_required", "startup_failure", "stale"
+      when "failure", "failed", "timed_out", "action_required",
+           "startup_failure", "stale"
         "failed"
-      when "success", "neutral", "skipped"
+      when "success"
         "success"
+      when "neutral", "skipped", "cancelled", "canceled"
+        "neutral"
       when "queued", "pending", "created", "waiting_for_resource", "requested",
            "waiting"
         "pending"
@@ -268,7 +282,15 @@ module DiscourseRepoActivity
       # Never turn attacker-controlled webhook links into off-forge or script links.
       if uri.scheme == "https" && uri.userinfo.nil? &&
            uri.host == @connection.host.split(":").first &&
-           uri.path.start_with?("/#{@connection.repo_path}/")
+           (
+             if @connection.forge == "github"
+               uri.path.downcase.start_with?(
+                 "/#{@connection.repo_path.downcase}/"
+               )
+             else
+               uri.path.start_with?("/#{@connection.repo_path}/")
+             end
+           )
         uri.to_s
       end
     rescue URI::InvalidURIError

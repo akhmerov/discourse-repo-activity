@@ -7,7 +7,7 @@ module DiscourseRepoActivity
     validates :kind, inclusion: { in: %w[branch pr] }
     validates :ci_state,
               inclusion: {
-                in: %w[none pending running success failed]
+                in: %w[none pending running success failed neutral]
               }
   end
 end

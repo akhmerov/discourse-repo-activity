@@ -45,7 +45,7 @@ export default class RepoActivityBridge extends Component {
 
   <template>
     {{#each (array this.chat.activeChannel) key="id" as |channel|}}
-      {{#if channel}}
+      {{#if channel.isCategoryChannel}}
         <RepoActivityHeader
           @channel={{channel}}
           @navbar={{this.navbar}}

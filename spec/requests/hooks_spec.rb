@@ -147,7 +147,7 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     deliver
     expect(response.status).to eq(200)
     expect(connection.events.count).to eq(0)
-    expect(connection.refs.count).to eq(0)
+    expect(connection.refs.count).to eq(1)
   end
 
   it "rate limits each connection independently" do
@@ -164,5 +164,27 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     deliver
     expect(response.status).to eq(429)
     expect(connection.events.count).to eq(0)
+  end
+  it "limits invalid signatures before verification and throttles error writes" do
+    RateLimiter.enable
+    connection
+      .class
+      .any_instance
+      .expects(:update_columns)
+      .with(last_delivery_error: "Invalid signature")
+      .once
+    2.times { deliver(signature: :invalid) }
+    expect(response.status).to eq(401)
+    118.times do
+      RateLimiter.new(
+        nil,
+        "repo-activity:#{connection.id}",
+        120,
+        1.minute
+      ).performed!
+    end
+    DiscourseRepoActivity::Signature.expects(:valid?).never
+    deliver(signature: :invalid)
+    expect(response.status).to eq(429)
   end
 end

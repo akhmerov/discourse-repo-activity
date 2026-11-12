@@ -14,7 +14,7 @@ export default class RepoActivityPopover extends Component {
       jobs: Object.entries(repo.default_ref?.ci_runs || {})
         .filter(([, run]) => run.state === "failed")
         .flatMap(([name, run]) =>
-          (run.jobs?.length ? run.jobs : [name]).map((job) => ({
+          (run.jobs?.length ? run.jobs : [run.name || name]).map((job) => ({
             name: job,
             url: run.url,
           }))

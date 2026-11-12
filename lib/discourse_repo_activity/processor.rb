@@ -15,7 +15,10 @@ module DiscourseRepoActivity
         c.refs.where(ref_name: data[:ref_name]).delete_all
         return if kind == "pr_closed" || kind == "push"
       end
-      return if c.enabled_events.exclude?(kind)
+      if !%w[push ci pr_opened].include?(kind) &&
+           c.enabled_events.exclude?(kind)
+        return
+      end
       summary =
         data[:summary].merge(sha: data[:sha], ref: data[:ref_name]).compact
       loud = !%w[push ci].include?(kind)
@@ -28,7 +31,8 @@ module DiscourseRepoActivity
           ref.ci_runs = {} if ref.head_sha != data[:sha]
           ref.head_sha = data[:sha]
           runs = ref.ci_runs
-          runs[data[:run_name]] = {
+          runs[run_key(data)] = {
+            name: data[:run_name],
             state: data[:ci_state],
             url: summary[:url],
             id: data[:run_id],
@@ -40,18 +44,30 @@ module DiscourseRepoActivity
           ref.ci_state =
             states.include?("failed") ?
               "failed" :
-              states.all?("success") ? "success" : "running"
+              if states.all?("neutral")
+                "neutral"
+              elsif states.all? { |state| %w[success neutral].include?(state) }
+                "success"
+              else
+                "running"
+              end
           summary[:jobs] = data[:jobs] if data[:jobs]
           # Keep the pusher from push payloads. A workflow actor may be a rerun operator.
-          if ref.kind == "branch" && ref.ref_name == c.default_branch &&
-               c.enabled_events.include?("failure")
+          if ref.kind == "branch" && ref.ref_name == c.default_branch
             if ref.ci_state == "failed"
               ref.failing_since ||= Time.current
-              kind = "failure"
-              loud = true
+              if c.enabled_events.include?("failure")
+                kind = "failure"
+                loud = true
+              end
             elsif ref.ci_state == "success" && ref.failing_since
-              kind = "recovery"
-              loud = true
+              if c.enabled_events.include?("recovery")
+                kind = "recovery"
+                loud = true
+              else
+                ref.failing_since = nil
+                ref.failure_message_id = nil
+              end
             end
           end
         elsif ref.head_sha != data[:sha]
@@ -62,25 +78,30 @@ module DiscourseRepoActivity
         ref.pushed_by_login = data[:actor] if kind == "push"
         ref.save!
       end
-      event =
-        c.events.create!(
-          chat_channel_id: c.chat_channel_id,
-          kind: kind,
-          actor_login: data[:actor],
-          summary: summary,
-          loud: loud
-        )
+      return if c.enabled_events.exclude?(kind)
+      c.events.create!(
+        chat_channel_id: c.chat_channel_id,
+        kind: kind,
+        actor_login: data[:actor],
+        summary: summary,
+        loud: loud
+      )
       if loud &&
-           !c
-             .events
-             .where(loud: true, chat_message_id: nil)
-             .where.not(id: event.id)
-             .exists?
+           Discourse.redis.set(
+             "repo-activity:announce:#{c.id}",
+             "1",
+             nx: true,
+             ex: 3.minutes.to_i
+           )
         Jobs.enqueue_in(2.minutes, :repo_activity_announce, connection_id: c.id)
       end
     end
 
     private
+
+    def run_key(data)
+      data[:run_key].presence || data[:run_name]
+    end
 
     def stale_ci?(ref, data)
       # Push is authoritative for branch heads; an older pipeline must not revert it.
@@ -98,13 +119,14 @@ module DiscourseRepoActivity
              .exists?
         return true
       end
-      prior = ref.ci_runs[data[:run_name]]
+      prior = ref.ci_runs[run_key(data)]
       return false unless prior && ref.head_sha == data[:sha]
       old = [prior["id"].to_i, prior["attempt"].to_i]
       new_run = [data[:run_id], data[:run_attempt]]
       (old <=> new_run) == 1 ||
         (
-          old == new_run && %w[success failed].include?(prior["state"]) &&
+          old == new_run &&
+            %w[success failed neutral].include?(prior["state"]) &&
             %w[running pending].include?(data[:ci_state])
         )
     end

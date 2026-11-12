@@ -15,11 +15,19 @@ module Jobs
           connection.events.where.not(id: keep).delete_all
           connection
             .refs
-            .where(kind: "branch")
-            .where.not(ref_name: connection.default_branch.to_s)
+            .where(
+              "kind = ? OR (kind = ? AND ref_name != ?)",
+              "pr",
+              "branch",
+              connection.default_branch.to_s
+            )
             .where("updated_at < ?", 14.days.ago)
             .delete_all
         end
+      rescue StandardError => error
+        Rails.logger.warn(
+          "Repository activity prune failed for connection #{connection.id}: #{error.class}"
+        )
       end
       DiscourseRepoActivity::Connection
         .where.not(chat_channel_id: ::Chat::Channel.select(:id))

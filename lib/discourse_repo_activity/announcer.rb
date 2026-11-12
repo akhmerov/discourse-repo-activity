@@ -10,14 +10,17 @@ module DiscourseRepoActivity
       c = @connection
       c.with_lock do
         c.chat_channel.with_lock do
-          return unless c.active_channel?
+          unless c.active_channel?
+            c.discard_pending!
+            return
+          end
           pending =
             c.events.where(loud: true, chat_message_id: nil).order(:id).to_a
           return if pending.empty?
           bot = Bot.user
           # Native bot membership does not widen the channel audience.
           c.chat_channel.add(bot)
-          refs = c.refs.where.not(failure_message_id: nil).to_a
+          refs = c.refs.to_a
           edits =
             pending
               .select { |e| %w[failure recovery].include?(e.kind) }
@@ -31,10 +34,20 @@ module DiscourseRepoActivity
                 chat_channel_id: c.chat_channel_id,
                 user_id: bot.id
               )
-            next unless message
+            unless message
+              if events.any? { |e| e.kind == "recovery" }
+                ref.update!(failure_message_id: nil, failing_since: nil)
+                # A same-window failure can still produce its initial alert.
+                unless events.any? { |e| e.kind == "failure" }
+                  events.each { |e| e.update!(loud: false) }
+                end
+              end
+              next
+            end
             events.each { |e| e.update!(chat_message_id: message.id) }
-            update(message.id, render_message(message, ref))
-            if ref.ci_state == "success"
+            update(message.id, render_message(message, ref, events))
+            if ref.ci_state == "success" &&
+                 @connection.enabled_events.include?("recovery")
               create(
                 "#{escape(c.display_name)} fixed in #{escape(ref.head_sha.to_s[0, 8])}",
                 reply_to: message.id
@@ -64,12 +77,15 @@ module DiscourseRepoActivity
             .each do |name|
               ref = c.refs.find_by(ref_name: name)
               next unless ref
-              if ref.ci_state == "success"
+              if ref.ci_state == "success" &&
+                   @connection.enabled_events.include?("recovery")
                 create(
                   "#{escape(c.display_name)} fixed in #{escape(ref.head_sha.to_s[0, 8])}",
                   reply_to: message.id
                 )
-                ref.update!(failing_since: nil)
+                ref.update!(failure_message_id: nil, failing_since: nil)
+              elsif ref.ci_state == "success"
+                ref.update!(failure_message_id: nil, failing_since: nil)
               else
                 ref.update!(failure_message_id: message.id)
               end
@@ -114,16 +130,17 @@ module DiscourseRepoActivity
       end
     end
 
-    def render_message(message, ref)
+    def render_message(message, ref, events)
       # Preserve other coalesced announcements even after event retention prunes
       # their source rows. Only this bot's existing failure line changes.
       prefix = "CI failing on #{escape(ref.ref_name)} ("
       replacement =
         (
-          if ref.ci_state == "success"
+          if ref.ci_state == "success" &&
+               @connection.enabled_events.include?("recovery")
             "fixed in #{escape(ref.head_sha.to_s[0, 8])}"
           else
-            "#{prefix}#{escape(ref.head_sha.to_s[0, 8])})"
+            "#{prefix}#{escape(events.reverse.find { |e| e.kind == "failure" }&.summary&.dig("sha").to_s[0, 8])})"
           end
         )
       message
@@ -152,15 +169,16 @@ module DiscourseRepoActivity
           "#{escape(e.kind.tr("_", " "))}: #{link(e.summary["title"], e.summary["url"])}"
         end
       alerts = []
-      failures.each_key do |name|
+      failures.each do |name, ref_events|
         ref = @connection.refs.find_by(ref_name: name)
         next unless ref
         status =
           (
-            if ref.ci_state == "success"
+            if ref.ci_state == "success" &&
+                 @connection.enabled_events.include?("recovery")
               "fixed in #{escape(ref.head_sha.to_s[0, 8])}"
             else
-              "CI failing on #{escape(name)} (#{escape(ref.head_sha.to_s[0, 8])})"
+              "CI failing on #{escape(name)} (#{escape(ref_events.reverse.find { |e| e.kind == "failure" }&.summary&.dig("sha").to_s[0, 8])})"
             end
           )
         prefix = mention && ref.ci_state == "failed" ? pusher_mention(ref) : nil
@@ -203,18 +221,30 @@ module DiscourseRepoActivity
 
     def link(title, url)
       if url.present?
-        "[#{escape(title)}](#{url.gsub(/[()\\\s]/) { |s| ERB::Util.url_encode(s) }})"
+        "[#{title_text(title)}](#{url.gsub(/[()\\\s]/) { |s| ERB::Util.url_encode(s) }})"
       else
-        escape(title)
+        title_text(title)
       end
     end
 
+    def title_text(value)
+      # Code spans disable URL/hashtag/mention and Markdown interpretation.
+      # Use a delimiter longer than any backtick run in the untrusted text.
+      title = value.to_s
+      delimiter = "`" * ((title.scan(/`+/).map(&:length).max || 0) + 1)
+      "#{delimiter} #{title} #{delimiter}"
+    end
+
     def escape(value)
-      # Webhook titles must not inject mentions, Markdown or HTML.
-      CGI
-        .escapeHTML(value.to_s)
+      # Break forge-controlled links, hashtags and mentions before Markdown cooking.
+      # HTML is handled by the cooker; pre-escaping would corrupt apostrophes.
+      value
+        .to_s
         .gsub("@", "＠")
-        .gsub(/[\\`*_{}\[\]()#+!|>~-]/) { |character| "\\" + character }
+        .gsub("#", "＃")
+        .gsub("://", ":​//")
+        .gsub(/www\./i) { |match| "#{match[0..2]}​." }
+        .gsub(/[\\`*_{}\[\]()!|>~<]/) { |character| "\\" + character }
     end
   end
 end

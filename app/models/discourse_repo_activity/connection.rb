@@ -7,6 +7,7 @@ module DiscourseRepoActivity
       push
       ci
       failure
+      recovery
       release
       tag
       pr_opened
@@ -22,6 +23,12 @@ module DiscourseRepoActivity
              class_name: "DiscourseRepoActivity::Event",
              dependent: :delete_all
     before_validation :normalize, on: :create
+    after_update :discard_pending_if_disabled
+    validate do
+      unless chat_channel&.category_channel?
+        errors.add(:chat_channel, "must be a category channel")
+      end
+    end
     validates :forge, inclusion: { in: %w[github gitlab] }
     validates :host,
               format: {
@@ -51,8 +58,8 @@ module DiscourseRepoActivity
 
     def active_channel?
       SiteSetting.chat_enabled && enabled? && chat_channel &&
-        !chat_channel.trashed? && chat_channel.open? &&
-        chat_channel.chatable.present?
+        chat_channel.category_channel? && !chat_channel.trashed? &&
+        chat_channel.open? && chat_channel.chatable.present?
     end
 
     def secret
@@ -84,7 +91,16 @@ module DiscourseRepoActivity
       )
     end
 
+    def discard_pending!
+      events.where(loud: true, chat_message_id: nil).update_all(loud: false)
+      refs.update_all(failing_since: nil, failure_message_id: nil)
+    end
+
     private
+
+    def discard_pending_if_disabled
+      discard_pending! if saved_change_to_enabled? && !enabled?
+    end
 
     def normalize
       self.host = host.to_s.strip.downcase

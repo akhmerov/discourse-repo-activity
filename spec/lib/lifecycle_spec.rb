@@ -33,6 +33,10 @@ RSpec.describe DiscourseRepoActivity::Announcer do
         {
           "workflow_run" => {
             "name" => name,
+            "workflow_id" => { "Tests" => 7, "Lint" => 8, "Build" => 9 }.fetch(
+              name,
+              10
+            ),
             "conclusion" => status,
             "head_sha" => sha
           }.merge(extra.transform_keys(&:to_s))
@@ -160,8 +164,13 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     )
     announce
     message = Chat::Message.where(chat_channel: channel).sole
-    expect(message.message).not_to include("@all", "<script>")
-    expect(message.message).to include("＠all", "&lt;script&gt;")
+    expect(
+      Nokogiri::HTML5.fragment(message.cooked).css(".mention, script")
+    ).to be_empty
+    expect(Nokogiri::HTML5.fragment(message.cooked).text).to include(
+      "@all",
+      "<script>"
+    )
   end
   it "preserves coalesced text when editing after event pruning" do
     repo_process(connection, repo_parse(connection, "github_issues", "issues"))
@@ -235,5 +244,169 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(message.message.length).to be <= 1000
     expect(message.message).to include("CI failing", "more events")
     expect(connection.events.where(chat_message_id: message.id).count).to eq(7)
+  end
+  it "drops recovery when its failure message was deleted and clears the incident" do
+    workflow
+    announce
+    Chat::Message.where(chat_channel: channel).sole.trash!
+    workflow(status: "success", run_attempt: 2)
+    announce
+    expect(connection.refs.first.attributes).to include(
+      "failing_since" => nil,
+      "failure_message_id" => nil
+    )
+    workflow(status: "success", run_attempt: 3)
+    announce
+    expect(Chat::Message.where(chat_channel: channel).count).to eq(0)
+    expect(
+      connection.events.where(
+        kind: "recovery",
+        loud: true,
+        chat_message_id: nil
+      )
+    ).to be_empty
+  end
+
+  it "updates state with quiet CI off and gates failure and recovery independently" do
+    connection.update!(enabled_events: %w[failure recovery])
+    workflow
+    expect(connection.refs.first.ci_state).to eq("failed")
+    expect(connection.events.order(:id).pluck(:kind)).to eq(["failure"])
+    announce
+    workflow(status: "success", run_attempt: 2)
+    announce
+    expect(connection.events.order(:id).pluck(:kind)).to eq(%w[failure recovery])
+    expect(connection.refs.first.failing_since).to be_nil
+  end
+
+  it "clears recovery without an alert when failure posting is off" do
+    connection.update!(enabled_events: %w[ci recovery])
+    workflow
+    announce
+    workflow(status: "success", run_attempt: 2)
+    announce
+    expect(Chat::Message.where(chat_channel: channel)).to be_empty
+    expect(connection.refs.first.failing_since).to be_nil
+    workflow(status: "success", run_attempt: 3)
+    expect(connection.events.where(kind: "recovery").count).to eq(1)
+  end
+
+  it "keeps workflows with duplicate names independent and cancellations neutral" do
+    workflow(workflow_id: 21)
+    workflow(workflow_id: 22, status: "success")
+    expect(connection.refs.first.ci_runs.keys).to contain_exactly("21", "22")
+    expect(connection.refs.first.ci_state).to eq("failed")
+    connection.events.delete_all
+    connection.refs.delete_all
+    %w[cancelled skipped].each { |status| workflow(status: status) }
+    expect(
+      connection.refs.first.ci_runs.values.map { |run| run["state"] }
+    ).to eq(["neutral"])
+    expect(connection.events.where(loud: true)).to be_empty
+    expect(connection.refs.first.ci_state).to eq("neutral")
+  end
+
+  it "uses the failing event sha if a newer push arrives before announcement" do
+    workflow
+    repo_process(
+      connection,
+      repo_parse(connection, "github_push", "push", "after" => "b" * 40)
+    )
+    announce
+    expect(Chat::Message.where(chat_channel: channel).sole.message).to include(
+      "aaaaaaaa"
+    )
+    expect(
+      Chat::Message.where(chat_channel: channel).sole.message
+    ).not_to include("bbbbbbbb")
+  end
+
+  it "re-enqueues after a lost job expires even with an older pending event" do
+    repo_process(connection, repo_parse(connection, "github_issues", "issues"))
+    key = "repo-activity:announce:#{connection.id}"
+    expect(Discourse.redis.ttl(key)).to be_between(1, 180)
+    Discourse.redis.del(key)
+    expect {
+      repo_process(
+        connection,
+        repo_parse(connection, "github_issues", "issues")
+      )
+    }.to change { Jobs::RepoActivityAnnounce.jobs.size }.by(1)
+  end
+
+  it "discards pending alerts on disable before re-enable" do
+    workflow
+    connection.update!(enabled: false)
+    connection.update!(enabled: true)
+    announce
+    expect(Chat::Message.where(chat_channel: channel)).to be_empty
+    expect(connection.events.where(loud: true)).to be_empty
+    expect(connection.refs.first.failing_since).to be_nil
+  end
+
+  it "cooks untrusted titles without autolinks, hashtags, mentions or HTML" do
+    title =
+      "Don't https://example.com www.example.com #tag @all `code` **bold** <img src=x>"
+    text = described_class.new(connection).send(:title_text, title)
+    cooked = Chat::Message.cook(text, user_id: bot.id, chat_channel: channel)
+    fragment = Nokogiri::HTML5.fragment(cooked)
+    expect(
+      fragment.css("a, img, script, .mention, .hashtag, .onebox")
+    ).to be_empty
+    expect(fragment.text).to include(
+      "Don't",
+      "`code`",
+      "**bold**",
+      "<img src=x>"
+    )
+    expect(fragment.text).not_to include("&#39;")
+    linked =
+      described_class.new(connection).send(
+        :link,
+        title,
+        "https://github.com/acme/sim-tools/issues/1"
+      )
+    fragment =
+      Nokogiri::HTML5.fragment(
+        Chat::Message.cook(linked, user_id: bot.id, chat_channel: channel)
+      )
+    expect(fragment.css("a").map { |a| a["href"] }).to eq(
+      ["https://github.com/acme/sim-tools/issues/1"]
+    )
+    expect(fragment.css("img, script, .mention, .hashtag, .onebox")).to be_empty
+  end
+
+  it "keeps quiet CI records and clears incidents when recovery alerts are off" do
+    connection.update!(enabled_events: %w[ci])
+    workflow
+    expect(connection.refs.first.ci_state).to eq("failed")
+    expect(connection.events.order(:id).pluck(:kind)).to eq(["ci"])
+    workflow(status: "success", run_attempt: 2)
+    expect(connection.refs.first.failing_since).to be_nil
+    expect(connection.events.order(:id).pluck(:kind)).to eq(%w[ci ci])
+    announce
+    expect(Chat::Message.where(chat_channel: channel)).to be_empty
+  end
+  it "uses the failure event sha when editing an existing alert after a newer push" do
+    workflow
+    announce
+    workflow(sha: "b" * 40, id: 114)
+    repo_process(
+      connection,
+      repo_parse(connection, "github_push", "push", "after" => "c" * 40)
+    )
+    announce
+    message = Chat::Message.where(chat_channel: channel).sole
+    expect(message.message).to include("bbbbbbbb")
+    expect(message.message).not_to include("cccccccc")
+  end
+
+  it "does not announce recovery when a failed run is cancelled" do
+    workflow
+    announce
+    workflow(status: "cancelled", run_attempt: 2)
+    announce
+    expect(connection.events.where(kind: "recovery")).to be_empty
+    expect(Chat::Message.where(chat_channel: channel).count).to eq(1)
   end
 end

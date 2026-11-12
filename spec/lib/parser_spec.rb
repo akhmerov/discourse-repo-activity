@@ -120,4 +120,88 @@ RSpec.describe DiscourseRepoActivity::Parser do
       ref_name: "pr/8"
     )
   end
+  it "skips unidentified fork and PR workflows even when their branch is main" do
+    [
+      { "event" => "pull_request" },
+      { "event" => "pull_request_target" },
+      { "head_repository" => { "id" => 99 } }
+    ].each do |run|
+      expect(
+        repo_parse(
+          github,
+          "github_workflow_run",
+          "workflow_run",
+          "workflow_run" => run
+        )
+      ).to be_nil
+      parsed =
+        repo_parse(
+          github,
+          "github_workflow_run",
+          "workflow_run",
+          "workflow_run" => run.merge("pull_requests" => [{ "number" => 8 }])
+        )
+      expect(parsed).to include(ref_kind: "pr", ref_name: "pr/8")
+    end
+  end
+
+  it "preserves uppercase GitHub paths without accepting off-repository links" do
+    parsed =
+      repo_parse(
+        github,
+        "github_issues",
+        "issues",
+        "issue" => {
+          "html_url" => "https://github.com/Acme/Sim-Tools/issues/1"
+        }
+      )
+    expect(parsed[:summary][:url]).to eq(
+      "https://github.com/Acme/Sim-Tools/issues/1"
+    )
+    %w[
+      https://github.com/acme/sim-tools-other/issues/1
+      http://github.com/Acme/Sim-Tools/issues/1
+      https://evil.example/Acme/Sim-Tools/issues/1
+    ].each do |url|
+      expect(
+        repo_parse(
+          github,
+          "github_issues",
+          "issues",
+          "issue" => {
+            "html_url" => url
+          }
+        )[
+          :summary
+        ][
+          :url
+        ]
+      ).to be_nil
+    end
+  end
+
+  it "skips MR pipelines without an MR number instead of creating pipeline refs" do
+    expect(
+      repo_parse(
+        gitlab,
+        "gitlab_pipeline",
+        "Pipeline Hook",
+        "object_attributes" => {
+          "source" => "merge_request_event"
+        }
+      )
+    ).to be_nil
+  end
+  it "skips GitHub runs without workflow identity" do
+    expect(
+      repo_parse(
+        github,
+        "github_workflow_run",
+        "workflow_run",
+        "workflow_run" => {
+          "workflow_id" => nil
+        }
+      )
+    ).to be_nil
+  end
 end

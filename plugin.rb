@@ -20,7 +20,7 @@ module ::DiscourseRepoActivity
 
   # One extension point, shared by the API and both management entry points.
   def self.can_manage?(channel, user)
-    can_view?(channel, user) &&
+    channel&.category_channel? && can_view?(channel, user) &&
       DiscoursePluginRegistry.apply_modifier(
         :repo_activity_channel_manager,
         user.staff?,
@@ -43,9 +43,5 @@ after_initialize do
 
   Discourse::Application.routes.append do
     mount ::DiscourseRepoActivity::Engine, at: "/repo-activity"
-  end
-
-  add_to_serializer("chat/channel", :can_manage_repositories) do
-    DiscourseRepoActivity.can_manage?(object, scope.user)
   end
 end
