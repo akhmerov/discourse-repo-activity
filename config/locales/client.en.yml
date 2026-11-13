@@ -1,6 +1,14 @@
 en:
   js:
     repo_activity:
+      activity: "Activity"
+      all_repos: "All repos"
+      idle: "idle"
+      since_looked: "Since you looked"
+      new_events: "%{count} new"
+      more_commits: "+ %{count} more commits"
+      omitted_commits: "+ %{count} commits on the forge"
+      load_earlier: "Load earlier"
       manage: "Repositories"
       add: "Add repository"
       forge: "Forge"
@@ -32,6 +40,15 @@ en:
         success: "Passing"
         failed: "Failing"
         neutral: "Cancelled or skipped"
+      stream_event:
+        push: "Push"
+        failure: "CI failed"
+        recovery: "CI recovered"
+        release: "Release"
+        tag: "Tag"
+        pr_opened: "PR/MR opened"
+        pr_merged: "PR/MR merged"
+        issue_opened: "Issue opened"
       event:
         push: "Pushes (quiet)"
         ci: "Pipelines (quiet)"

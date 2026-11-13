@@ -7,8 +7,8 @@ import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import DButton from "discourse/ui-kit/d-button";
 import { i18n } from "discourse-i18n";
-import RepoActivityManager from "./modal/repo-activity-manager";
-import RepoActivityPopover from "./repo-activity-popover";
+import RepoActivityManager from "./modal/repo-activity-manager.gjs";
+import RepoActivityPopover from "./repo-activity-popover.gjs";
 
 export function age(value) {
   if (!value) {
@@ -39,7 +39,7 @@ export default class RepoActivityHeader extends Component {
     this.busChannel = `/repo-activity/${this.args.channel.id}`;
     ajax(`/repo-activity/channels/${this.args.channel.id}.json`)
       .then((data) => {
-        if (!this.isDestroying && !this.isDestroyed) {
+        if (!this.isDestroying) {
           this.data = data;
           // Replay updates since the snapshot began, including before the first poll.
           this.messageBus.subscribe(
@@ -57,27 +57,8 @@ export default class RepoActivityHeader extends Component {
     this.messageBus.unsubscribe(this.busChannel, this.receive);
   }
 
-  @action
-  receive(data) {
-    if (!this.isDestroying && !this.isDestroyed) {
-      const seen = Math.max(
-        this.data?.last_seen_event_id || 0,
-        data.last_seen_event_id || 0
-      );
-      const eventIds =
-        data.event_ids ||
-        this.data?.event_ids ||
-        this.data?.repos.flatMap((repo) =>
-          repo.events.map((event) => event.id)
-        ) ||
-        [];
-      this.data = {
-        ...this.data,
-        ...data,
-        last_seen_event_id: seen,
-        new_count: eventIds.filter((id) => id > seen).length,
-      };
-    }
+  get compactCount() {
+    return this.data?.new_count || this.data?.repos?.length || 0;
   }
 
   get failing() {
@@ -112,6 +93,48 @@ export default class RepoActivityHeader extends Component {
   }
 
   @action
+  async receive(update) {
+    if (update.last_seen_event_id !== undefined && this.data) {
+      const seen = Math.max(
+        this.data.last_seen_event_id,
+        update.last_seen_event_id
+      );
+      this.data = {
+        ...this.data,
+        last_seen_event_id: seen,
+        new_count:
+          update.new_count ??
+          (this.data.latest_event_id <= seen ? 0 : this.data.new_count),
+      };
+      return;
+    }
+    // Fetch private counts rather than broadcasting an unbounded event-ID list.
+    const request = (this.refreshRequest || 0) + 1;
+    this.refreshRequest = request;
+    try {
+      const data = await ajax(
+        `/repo-activity/channels/${this.args.channel.id}.json`
+      );
+      if (!this.isDestroying && request === this.refreshRequest) {
+        const seen = Math.max(
+          this.data.last_seen_event_id,
+          data.last_seen_event_id
+        );
+        this.data = {
+          ...data,
+          last_seen_event_id: seen,
+          new_count:
+            seen > data.last_seen_event_id
+              ? data.stream.filter((event) => event.id > seen).length
+              : data.new_count,
+        };
+      }
+    } catch (error) {
+      popupAjaxError(error);
+    }
+  }
+
+  @action
   async opened() {
     this.highlightSince = this.data.last_seen_event_id;
     const id = this.data.latest_event_id;
@@ -120,17 +143,14 @@ export default class RepoActivityHeader extends Component {
         type: "PUT",
         data: { last_seen_event_id: id },
       });
-      if (!this.isDestroying && !this.isDestroyed) {
+      if (!this.isDestroying) {
         const seen = Math.max(this.data.last_seen_event_id, id);
-        const eventIds =
-          this.data.event_ids ||
-          this.data.repos.flatMap((repo) =>
-            repo.events.map((event) => event.id)
-          );
         this.data = {
           ...this.data,
           last_seen_event_id: seen,
-          new_count: eventIds.filter((eventId) => eventId > seen).length,
+          new_count:
+            this.data.latest_event_id <= seen ? 0 : this.data.new_count,
+          repos: this.data.repos.map((repo) => ({ ...repo, new_count: 0 })),
         };
       }
     } catch (error) {
@@ -150,25 +170,32 @@ export default class RepoActivityHeader extends Component {
       {{#in-element @navbar insertBefore=null}}
         {{#if this.data.repos.length}}
           <DMenu
+            @ariaLabel={{this.label}}
             @identifier="repo-activity"
-            @label={{this.label}}
-            @triggerClass={{this.statusClass}}
-            @onShow={{this.opened}}
+            @maxWidth={{420}}
             @modalForMobile={{true}}
+            @onShow={{this.opened}}
             @placement="bottom-end"
-            @maxWidth={{480}}
+            @triggerClass={{this.statusClass}}
           >
+            <:trigger>
+              <span class="repo-activity__full-label">{{this.label}}</span>
+              <span
+                class="repo-activity__compact-label"
+              >{{this.compactCount}}</span>
+            </:trigger>
             <:content>
               <div class="repo-activity__content">
                 <RepoActivityPopover
-                  @repos={{this.data.repos}}
+                  @channelId={{@channel.id}}
+                  @data={{this.data}}
                   @highlightSince={{this.highlightSince}}
                 />
                 {{#if this.data.can_manage}}
                   <DButton
+                    class="btn-default repo-activity__manage"
                     @action={{this.manage}}
                     @label="repo_activity.manage"
-                    class="btn-default repo-activity__manage"
                   />
                 {{/if}}
               </div>
@@ -181,10 +208,10 @@ export default class RepoActivityHeader extends Component {
       {{#if this.data.can_manage}}
         {{#in-element @settings insertBefore=null}}
           <DButton
-            @action={{this.manage}}
-            @label="repo_activity.manage"
-            @icon="code-branch"
             class="btn-default repo-activity__settings"
+            @action={{this.manage}}
+            @icon="code-branch"
+            @label="repo_activity.manage"
           />
         {{/in-element}}
       {{/if}}

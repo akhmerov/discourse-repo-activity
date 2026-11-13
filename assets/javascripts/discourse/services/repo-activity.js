@@ -1,5 +1,5 @@
 import Service, { service } from "@ember/service";
-import RepoActivityManager from "../components/modal/repo-activity-manager";
+import RepoActivityManager from "../components/modal/repo-activity-manager.gjs";
 
 export default class RepoActivityService extends Service {
   @service modal;

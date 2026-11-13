@@ -1,5 +1,5 @@
 import { apiInitializer } from "discourse/lib/api";
-import RepoActivityBridge from "../components/repo-activity-bridge";
+import RepoActivityBridge from "../components/repo-activity-bridge.gjs";
 
 export default apiInitializer((api) => {
   const settings = api.container.lookup("service:site-settings");

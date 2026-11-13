@@ -3,7 +3,7 @@ import { tracked } from "@glimmer/tracking";
 import { array } from "@ember/helper";
 import { cancel, scheduleOnce } from "@ember/runloop";
 import { service } from "@ember/service";
-import RepoActivityHeader from "./repo-activity-header";
+import RepoActivityHeader from "./repo-activity-header.gjs";
 
 // This core has no navbar outlet. Keep DOM discovery here; Glimmer owns all UI.
 export default class RepoActivityBridge extends Component {
@@ -28,7 +28,7 @@ export default class RepoActivityBridge extends Component {
   }
 
   locate() {
-    if (this.isDestroying || this.isDestroyed) {
+    if (this.isDestroying) {
       return;
     }
     const navbar = document.querySelector(

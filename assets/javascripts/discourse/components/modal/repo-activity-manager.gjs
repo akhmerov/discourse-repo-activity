@@ -52,7 +52,7 @@ export default class RepoActivityManager extends Component {
   async refresh() {
     try {
       const data = await ajax(`${this.url}.json`);
-      if (!this.isDestroying && !this.isDestroyed) {
+      if (!this.isDestroying) {
         this.connections = data.connections;
         this.loading = false;
       }
@@ -111,9 +111,9 @@ export default class RepoActivityManager extends Component {
 
   <template>
     <DModal
-      @title={{i18n "repo_activity.manage"}}
-      @closeModal={{@closeModal}}
       class="repo-activity__manager"
+      @closeModal={{@closeModal}}
+      @title={{i18n "repo_activity.manage"}}
     >
       <:body>
         {{#if this.loading}}<p>{{i18n "loading"}}</p>{{/if}}
@@ -122,15 +122,15 @@ export default class RepoActivityManager extends Component {
             <h3>{{connection.display_name}}
               ({{connection.host}}/{{connection.repo_path}})</h3>
             <label>{{i18n "repo_activity.webhook_url"}}<input
+                aria-label={{i18n "repo_activity.webhook_url"}}
                 readonly
                 value={{connection.webhook_url}}
-                aria-label={{i18n "repo_activity.webhook_url"}}
               /></label>
             <label>{{i18n "repo_activity.secret"}}<input
-                readonly
-                value={{connection.secret}}
                 aria-label={{i18n "repo_activity.secret"}}
                 autocomplete="off"
+                readonly
+                value={{connection.secret}}
               /></label>
             <p>{{connection.instructions}}</p>
             <p>{{i18n "repo_activity.last_delivery"}}
@@ -139,32 +139,32 @@ export default class RepoActivityManager extends Component {
                 class="alert alert-error"
               >{{connection.last_delivery_error}}</p>{{/if}}
             <label><input
-                type="checkbox"
                 checked={{connection.enabled}}
                 disabled={{this.busy}}
+                type="checkbox"
                 {{on "change" (fn this.toggleEnabled connection)}}
               />{{i18n "repo_activity.enabled"}}</label>
             <div class="repo-activity__toggles">
               {{#each connection.toggles as |toggle|}}
                 <label><input
-                    type="checkbox"
                     checked={{toggle.enabled}}
                     disabled={{this.busy}}
+                    type="checkbox"
                     {{on "change" (fn this.toggle connection toggle.key)}}
                   />{{toggle.label}}</label>
               {{/each}}
             </div>
             <DButton
+              class="btn-default"
               @action={{fn this.rotate connection}}
               @disabled={{this.busy}}
               @label="repo_activity.rotate"
-              class="btn-default"
             />
             <DButton
+              class="btn-danger"
               @action={{fn this.remove connection}}
               @disabled={{this.busy}}
               @label="repo_activity.remove"
-              class="btn-danger"
             />
           </section>
         {{/each}}
@@ -172,8 +172,8 @@ export default class RepoActivityManager extends Component {
         <Form @data={{this.formData}} @onSubmit={{this.add}} as |form|>
           <form.Field
             @name="forge"
-            @type="select"
             @title={{i18n "repo_activity.forge"}}
+            @type="select"
             @validation="required"
             as |field|
           >
@@ -185,21 +185,21 @@ export default class RepoActivityManager extends Component {
           </form.Field>
           <form.Field
             @name="host"
-            @type="input"
             @title={{i18n "repo_activity.host"}}
+            @type="input"
             @validation="required"
             as |field|
           ><field.Control /></form.Field>
           <form.Field
             @name="repo_path"
-            @type="input"
             @title={{i18n "repo_activity.repo_path"}}
+            @type="input"
             @validation="required"
             as |field|
           ><field.Control /></form.Field>
           <form.Submit
-            @label={{i18n "repo_activity.add"}}
             @disabled={{this.busy}}
+            @label={{i18n "repo_activity.add"}}
           />
         </Form>
       </:body>
