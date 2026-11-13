@@ -13,9 +13,10 @@ end
 options = { mode: "seed", url: "http://127.0.0.1:3000" }
 OptionParser
   .new do |p|
-    p.on("--mode MODE", %w[seed week report reset metrics-reset edges incident]) do |v|
-      options[:mode] = v
-    end
+    p.on(
+      "--mode MODE",
+      %w[seed week report reset metrics-reset edges incident showcase polish replay],
+    ) { |v| options[:mode] = v }
     p.on("--url URL") { |v| options[:url] = v }
   end
   .parse!(ARGV)
@@ -46,6 +47,126 @@ module RepoActivitySimulation
     "Documentation" => 1,
     "Archive" => 1,
     "Planning" => 1,
+  }.freeze
+
+  REPO_NAMES = %w[
+    kwant-ext
+    mesh-tools
+    eigenflow
+    lab-notebooks
+    transport-bench
+    spectra-fit
+    bootstrap-tools
+    phase-map
+    cryo-control
+    pulse-sequencer
+    aurora-releases
+    cluster-jobs
+    lab-handbook
+    thesis-scripts
+    old-benchmarks
+  ].freeze
+  COMMIT_MESSAGES = [
+    "Use sparse LU for lead self-energies",
+    "Check current conservation at zero bias",
+    "Cache transverse modes between energy points",
+    "Fix conjugation in spinful hopping",
+    "Add a regression for degenerate band crossings",
+    "Normalize wave functions before projection",
+    "Reduce peak memory in the KPM kernel",
+    "Vectorize the bootstrap resampling loop",
+    "Document the lattice convention used by the notebooks",
+    "Keep units on the acquisition time axis",
+    "Handle empty slices in the symmetry reduction",
+    "Compare the finite-size gap with the continuum limit",
+    "Export reproducible metadata with the phase diagram",
+    "Stabilize the fit near the critical field",
+    "Add uncertainty bounds to the calibration curve",
+    "Check Hermiticity before diagonalization",
+  ].freeze
+  PR_TITLES = [
+    "Add GPU sparse solver support",
+    "Compare Landauer conductance with Kubo response",
+    "Make the disorder sweep reproducible",
+    "Track units through the calibration pipeline",
+    "Support non-orthogonal lead cells",
+    "Add a tutorial on spin-orbit transport",
+    "Parallelize independent energy points",
+    "Publish the benchmark notebook",
+  ].freeze
+  ISSUE_TITLES = [
+    "Conductance drifts at the band edge",
+    "Bootstrap intervals collapse for three samples",
+    "Acquisition timestamps wrap after midnight",
+    "Notebook figures use the old lattice convention",
+    "Large supercells exceed the worker memory limit",
+  ].freeze
+
+  DISCUSSIONS = {
+    "Engineering" => [
+      "Morning! I have a first pass at the lead-mode solver ready for review.",
+      "Thanks. I will compare the sparse factorization with last week’s baseline after lunch.",
+      "The transport regression still needs a second pair of eyes before we share it.",
+      "I checked the lead-mode solver; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the sparse factorization notes?",
+      "Done. Let’s discuss the transport regression at the next group meeting.",
+    ],
+    "Analysis" => [
+      "Morning! I have a first pass at the bootstrap notebook ready for review.",
+      "Thanks. I will compare the finite-size fit with last week’s baseline after lunch.",
+      "The uncertainty estimate still needs a second pair of eyes before we share it.",
+      "I checked the bootstrap notebook; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the finite-size fit notes?",
+      "Done. Let’s discuss the uncertainty estimate at the next group meeting.",
+    ],
+    "Instruments" => [
+      "Morning! I have a first pass at the cryostat calibration ready for review.",
+      "Thanks. I will compare the pulse sequence with last week’s baseline after lunch.",
+      "The acquisition timestamp still needs a second pair of eyes before we share it.",
+      "I checked the cryostat calibration; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the pulse sequence notes?",
+      "Done. Let’s discuss the acquisition timestamp at the next group meeting.",
+    ],
+    "Releases" => [
+      "Morning! I have a first pass at the release candidate ready for review.",
+      "Thanks. I will compare the reproducible environment with last week’s baseline after lunch.",
+      "The migration note still needs a second pair of eyes before we share it.",
+      "I checked the release candidate; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the reproducible environment notes?",
+      "Done. Let’s discuss the migration note at the next group meeting.",
+    ],
+    "Operations" => [
+      "Morning! I have a first pass at the cluster queue ready for review.",
+      "Thanks. I will compare the worker memory budget with last week’s baseline after lunch.",
+      "The overnight sweep still needs a second pair of eyes before we share it.",
+      "I checked the cluster queue; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the worker memory budget notes?",
+      "Done. Let’s discuss the overnight sweep at the next group meeting.",
+    ],
+    "Documentation" => [
+      "Morning! I have a first pass at the lead-convention tutorial ready for review.",
+      "Thanks. I will compare the notebook gallery with last week’s baseline after lunch.",
+      "The installation guide still needs a second pair of eyes before we share it.",
+      "I checked the lead-convention tutorial; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the notebook gallery notes?",
+      "Done. Let’s discuss the installation guide at the next group meeting.",
+    ],
+    "Archive" => [
+      "Morning! I have a first pass at the old benchmark dataset ready for review.",
+      "Thanks. I will compare the thesis script with last week’s baseline after lunch.",
+      "The archived environment still needs a second pair of eyes before we share it.",
+      "I checked the old benchmark dataset; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the thesis script notes?",
+      "Done. Let’s discuss the archived environment at the next group meeting.",
+    ],
+    "Planning" => [
+      "Morning! I have a first pass at the next transport sweep ready for review.",
+      "Thanks. I will compare the instrument allocation with last week’s baseline after lunch.",
+      "The group-meeting agenda still needs a second pair of eyes before we share it.",
+      "I checked the next transport sweep; the reference values agree within the error bars.",
+      "Could you add the environment and random seed to the instrument allocation notes?",
+      "Done. Let’s discuss the group-meeting agenda at the next group meeting.",
+    ],
   }.freeze
 
   def users(count)
@@ -111,36 +232,33 @@ module RepoActivitySimulation
       count.times do |ri|
         forge = (ci + ri).even? ? "github" : "gitlab"
         path = "aurora/#{name.downcase}-#{ri + 1}"
-        DiscourseRepoActivity::Connection.find_or_create_by!(
-          chat_channel: channel,
-          repo_path: path,
-        ) do |c|
-          c.created_by = owner
-          c.forge = forge
-          c.host = forge == "github" ? "github.com" : "git.aurora.example"
-          c.default_branch = "main"
-        end
+        connection =
+          DiscourseRepoActivity::Connection.find_or_create_by!(
+            chat_channel: channel,
+            repo_path: path,
+          ) do |c|
+            c.created_by = owner
+            c.forge = forge
+            c.host = forge == "github" ? "github.com" : "git.aurora.example"
+            c.default_branch = "main"
+          end
+        connection.update!(display_name: REPO_NAMES[CHANNELS.values.first(ci).sum + ri])
       end
       if channel.chat_messages.where(user_id: people.map(&:id)).empty?
-        [
-          "Morning! The new calibration data is ready for review.",
-          "Thanks, I will compare it with yesterday's baseline after lunch.",
-          "The drift looks smaller now. I added the notes to the analysis branch.",
-          "Could someone review the uncertainty estimates before we cut the release?",
-          "I checked the plots; the error bars now agree with the bootstrap.",
-          "Great. Let's keep the last stable build available for the instrument team.",
-        ].each_with_index do |text, i|
-          message =
-            Chat::Message.create!(
-              chat_channel: channel,
-              user: people[i],
-              message: text,
-              created_at: (6 - i).hours.ago,
-            )
-          message.cook
-          message.save!
-          channel.update!(last_message: message)
-        end
+        DISCUSSIONS
+          .fetch(name)
+          .each_with_index do |text, i|
+            message =
+              Chat::Message.create!(
+                chat_channel: channel,
+                user: people[i],
+                message: text,
+                created_at: (6 - i).hours.ago,
+              )
+            message.cook
+            message.save!
+            channel.update!(last_message: message)
+          end
       end
     end
     Chat::Message
@@ -163,15 +281,32 @@ module RepoActivitySimulation
     sha = Digest::SHA1.hexdigest("#{c.id}:#{n}")
     actor = "sim_#{NAMES[n % NAMES.length].downcase.tr(" ", "_")}"
     url = c.repository_url
+    salt = c.repo_path.bytes.sum
     title =
-      [
-        "Improve calibration precision",
-        "Reduce solver memory use",
-        "Document acquisition protocol",
-        "Fix parallel reduction race",
-      ][
-        n % 4
-      ]
+      case kind
+      when "pull_request"
+        PR_TITLES[(n / 1000 + n + salt) % PR_TITLES.length]
+      when "issues"
+        ISSUE_TITLES[(n + salt) % ISSUE_TITLES.length]
+      when "release"
+        "#{c.display_name} 0.#{n / 1000 + 1}.0 — reproducible transport"
+      else
+        COMMIT_MESSAGES[(n / 3 + salt) % COMMIT_MESSAGES.length]
+      end
+    branch = n % 9 == 0 ? "main" : %w[solver-cache error-estimates band-crossings][(n / 3) % 3]
+    commit_list =
+      (0..(n % 3)).map do |i|
+        {
+          id: (commit_sha = i.zero? ? sha : Digest::SHA1.hexdigest("#{c.id}:#{n}:#{i}")),
+          message: i.zero? ? title : COMMIT_MESSAGES[(n + i + salt) % COMMIT_MESSAGES.length],
+          author: {
+            username: actor,
+            name: actor.delete_prefix("sim_").tr("_", " ").titleize,
+          },
+          url: "#{url}/#{c.forge == "github" ? "commit" : "-/commit"}/#{commit_sha}",
+          timestamp: (7.days.ago + n.minutes).iso8601,
+        }
+      end
     if c.forge == "github"
       data = {
         repository: {
@@ -190,7 +325,7 @@ module RepoActivitySimulation
       case kind
       when "push"
         data.merge!(
-          ref: "refs/heads/main",
+          ref: "refs/heads/#{branch}",
           before: Digest::SHA1.hexdigest("before#{n}"),
           after: sha,
           forced: n % 30 == 0,
@@ -199,7 +334,7 @@ module RepoActivitySimulation
           pusher: {
             name: actor,
           },
-          commits: [{ id: sha, message: title, timestamp: (7.days.ago + n.minutes).iso8601 }],
+          commits: commit_list,
           head_commit: {
             id: sha,
             message: title,
@@ -266,7 +401,7 @@ module RepoActivitySimulation
         data.merge!(
           action: "published",
           release: {
-            name: "Aurora v#{n}.0",
+            name: title,
             tag_name: "v#{n}.0",
             html_url: "#{url}/releases/tag/v#{n}.0",
           },
@@ -290,11 +425,11 @@ module RepoActivitySimulation
         event = "Push Hook"
         data.merge!(
           object_kind: "push",
-          ref: "refs/heads/main",
+          ref: "refs/heads/#{branch}",
           before: Digest::SHA1.hexdigest("before#{n}"),
           after: sha,
-          total_commits_count: 1,
-          commits: [{ id: sha, message: title, timestamp: (7.days.ago + n.minutes).iso8601 }],
+          total_commits_count: commit_list.length,
+          commits: commit_list,
         )
       when "workflow_run"
         event = "Pipeline Hook"
@@ -340,7 +475,7 @@ module RepoActivitySimulation
         )
       when "release"
         event = "Release Hook"
-        data.merge!(action: "create", name: "Aurora v#{n}.0", tag: "v#{n}.0")
+        data.merge!(action: "create", name: title, tag: "v#{n}.0")
       end
     end
     [event, JSON.generate(data)]
@@ -402,6 +537,26 @@ module RepoActivitySimulation
           [t, ActiveRecord::Base.connection.select_value("SELECT COUNT(*) FROM repo_activity_#{t}")]
         end,
       bot_messages: Chat::Message.where(user_id: DiscourseRepoActivity::Bot.user.id).count,
+      self_deleted_alerts:
+        Chat::Message.only_deleted.where(user_id: DiscourseRepoActivity::Bot.user.id).count,
+      channel_counts:
+        connections
+          .includes(:chat_channel)
+          .map(&:chat_channel)
+          .uniq
+          .map do |channel|
+            {
+              channel: channel.name,
+              events: DiscourseRepoActivity::Event.where(chat_channel_id: channel.id).count,
+              bot_messages:
+                channel.chat_messages.where(user_id: DiscourseRepoActivity::Bot.user.id).count,
+              deleted_alerts:
+                Chat::Message
+                  .only_deleted
+                  .where(chat_channel_id: channel.id, user_id: DiscourseRepoActivity::Bot.user.id)
+                  .count,
+            }
+          end,
       users: User.where("username LIKE 'sim_%'").count,
       channels:
         connections
@@ -446,9 +601,33 @@ when "week"
       end
       %w[pull_request workflow_run issues release].each_with_index do |kind, ki|
         next if kind == "release" && day != 6
+        next if kind == "pull_request" && index > 0 && day.odd?
+        next if kind == "issues" && day != index % 7
         event, body = sim.payload(c, kind, day * 1000 + 500 + ki, pr: kind == "workflow_run")
         sim.deliver(c, uri, event, body)
       end
+    end
+    channel = list[day % 3].chat_channel
+    text =
+      [
+        "The sparse solver is ready for another comparison with the dense baseline.",
+        "I checked the band-edge regression; the remaining difference is within tolerance.",
+        "Can we keep the acquisition protocol in the release notes?",
+        "The latest calibration is on the shared drive. Please use the new uncertainty column.",
+        "I will review the transport notebook after the group meeting.",
+        "The cluster run finished overnight; the memory profile looks much better.",
+        "Thanks for the reviews. I am tagging this week's reproducible dataset.",
+      ][
+        day
+      ]
+    unless channel.chat_messages.where(message: text).exists?
+      Chat::CreateMessage.call(
+        guardian: sim.users(40)[day].guardian,
+        params: {
+          chat_channel_id: channel.id,
+          message: text,
+        },
+      )
     end
     puts({ day: day + 1, delivered: Discourse.redis.llen("ra-sim:latency") }.to_json)
   end
@@ -464,9 +643,159 @@ when "week"
   c = list.first
   event, body = sim.payload(c, "workflow_run", 90_000)
   sim.deliver(c, uri, event, body)
-  puts "Waiting for scheduled recovery edit and thread reply"
+  puts "Waiting for scheduled recovery and alert deletion"
   sleep 135
   sim.report
+when "showcase"
+  # A compact final browse state, also exercising consecutive push grouping.
+  generation = Discourse.redis.get("ra-sim:showcase-generation") || SecureRandom.uuid
+  Discourse.redis.set("ra-sim:showcase-generation", generation)
+  sim
+    .connections
+    .where.not(repo_path: %w[aurora/engineering-2 aurora/planning-1])
+    .each do |repo|
+      2.times do |push|
+        number = 110_000 + push * 8
+        event, body = sim.payload(repo, "push", number)
+        data = JSON.parse(body)
+        data["ref"] = "refs/heads/main"
+        sha = data["after"]
+        data["commits"] = 3.times.map do |index|
+          commit_sha = index.zero? ? sha : Digest::SHA1.hexdigest("#{repo.id}:#{number}:#{index}")
+          {
+            id: commit_sha,
+            message:
+              sim::COMMIT_MESSAGES[(repo.id + push * 3 + index) % sim::COMMIT_MESSAGES.length],
+            author: {
+              username: "sim_mira_vale",
+              name: "Mira Vale",
+            },
+            url:
+              "#{repo.repository_url}/#{repo.forge == "github" ? "commit" : "-/commit"}/#{commit_sha}",
+          }
+        end
+        data["total_commits_count"] = 3
+        data["size"] = 3
+        sim.deliver(
+          repo,
+          uri,
+          event,
+          JSON.generate(data),
+          delivery: Digest::SHA256.hexdigest("#{generation}:#{repo.id}:#{number}"),
+        )
+        ci_event, ci_body = sim.payload(repo, "workflow_run", number)
+        sim.deliver(
+          repo,
+          uri,
+          ci_event,
+          ci_body,
+          delivery: Digest::SHA256.hexdigest("#{generation}:#{repo.id}:#{number}:ci"),
+        )
+      end
+    end
+  puts "Consecutive commit groups delivered; open mesh-tools failure preserved"
+  sim.report
+when "polish"
+  # Presentation only: replace compressed-counter titles/numbers with plausible
+  # research work. Keep receipt times, fixture_event order, CI state and message IDs.
+  sim.connections.each do |repo|
+    recovered = {}
+    repo
+      .events
+      .where(kind: %w[failure recovery])
+      .order(:id)
+      .each do |fixture_event|
+        ref = fixture_event.summary["ref"]
+        recovered[ref] = false if fixture_event.kind == "failure"
+        if fixture_event.kind == "recovery"
+          # Normalize green receipts ingested before the recovery deduplication fix.
+          fixture_event.update!(kind: "ci", loud: false) if recovered[ref]
+          recovered[ref] = true
+        end
+      end
+    counters = Hash.new(0)
+    repo
+      .events
+      .where(kind: %w[pr_opened pr_merged issue_opened release tag])
+      .order(:id)
+      .each do |fixture_event|
+        index = counters[fixture_event.kind]
+        counters[fixture_event.kind] += 1
+        summary = fixture_event.summary.dup
+        case fixture_event.kind
+        when "pr_opened", "pr_merged", "issue_opened"
+          issue = fixture_event.kind == "issue_opened"
+          titles = issue ? sim::ISSUE_TITLES : sim::PR_TITLES
+          summary["title"] = titles[(repo.id + index) % titles.length]
+          summary["number"] = (issue ? 31 : 83) + index
+          path = issue ? "issues" : repo.forge == "github" ? "pull" : "-/merge_requests"
+          path = "-/issues" if issue && repo.forge == "gitlab"
+          summary["url"] = "#{repo.repository_url}/#{path}/#{summary["number"]}"
+        when "release", "tag"
+          summary["title"] = "#{repo.display_name} 0.7.#{index} — reproducible transport"
+        end
+        fixture_event.update!(summary: summary)
+      end
+    repo
+      .events
+      .where.not(chat_message_id: nil)
+      .group_by(&:chat_message_id)
+      .each do |id, events|
+        next if events.any? { |fixture_event| %w[failure recovery].include?(fixture_event.kind) }
+        message = Chat::Message.find_by(id: id, user_id: DiscourseRepoActivity::Bot.user.id)
+        next unless message
+        raw =
+          DiscourseRepoActivity::Announcer.new(repo).send(:render_events, events, mention: false)
+        result =
+          Chat::UpdateMessage.call(
+            guardian: DiscourseRepoActivity::BotGuardian.new(repo),
+            params: {
+              channel_id: repo.chat_channel_id,
+              message_id: id,
+              message: raw,
+            },
+          )
+        raise "Fixture message update failed" if result.failure?
+      end
+  end
+  people = sim.users(40)
+  sim
+    .connections
+    .map(&:chat_channel)
+    .uniq
+    .each do |channel|
+      channel
+        .chat_messages
+        .where(user_id: people.map(&:id))
+        .order(:id)
+        .limit(6)
+        .each_with_index do |message, index|
+          result =
+            Chat::UpdateMessage.call(
+              guardian: people.first.guardian,
+              params: {
+                channel_id: channel.id,
+                message_id: message.id,
+                message: sim::DISCUSSIONS.fetch(channel.name)[index],
+              },
+            )
+          raise "Fixture conversation update failed" if result.failure?
+        end
+    end
+  puts "Fixture titles refreshed through native Chat updates; receipt order and CI unchanged"
+  sim.report
+when "replay"
+  %w[reset seed week edges incident showcase polish].each do |mode|
+    system(
+      RbConfig.ruby,
+      Rails.root.join("bin/rails").to_s,
+      "runner",
+      __FILE__,
+      "--mode",
+      mode,
+      exception: true,
+    )
+  end
 when "report"
   sim.report
 when "metrics-reset"
@@ -524,6 +853,18 @@ when "incident"
     raise "Incident marker was lost" unless target.refs.find_by!(ref_name: "main").failing_since
     alert_ids =
       [target, repair].map { |repo| repo.refs.find_by!(ref_name: "main").failure_message_id }
+    human = sim.users(40)[1]
+    Chat::CreateMessage.call(
+      guardian: human.guardian,
+      params: {
+        chat_channel_id: target.chat_channel_id,
+        in_reply_to_id: alert_ids.first,
+        message: "I reproduced the unstable lead mode. Keeping the investigation here.",
+      },
+      options: {
+        force_thread: true,
+      },
+    )
     [target, repair].each do |repo|
       event, body = sim.payload(repo, "workflow_run", 100_011)
       raise "Recovery delivery failed" unless sim.deliver(repo, uri, event, body) == 200
@@ -532,14 +873,14 @@ when "incident"
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 200
     loop do
       replies = Chat::Message.where(in_reply_to_id: alert_ids).count
-      break if replies >= alert_ids.size
+      break if replies >= 2 && Chat::Message.with_deleted.find(alert_ids.last).trashed?
       if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
         raise "Threaded recovery timed out"
       end
       sleep 1
     end
     unless Chat::Message
-             .where(id: alert_ids)
+             .where(id: alert_ids.first)
              .all? { |message| message.message.include?("fixed in") }
       raise "Alert was not edited"
     end
@@ -551,7 +892,9 @@ when "reset"
   # are reused on re-seed; no unrelated local data or Redis keys are removed.
   fixture_channels = sim.connections.reorder(nil).distinct.pluck(:chat_channel_id)
   bot_id = PluginStore.get(DiscourseRepoActivity::PLUGIN_NAME, "bot_user_id")
-  Chat::Message.where(chat_channel_id: fixture_channels, user_id: bot_id).destroy_all if bot_id
+  if bot_id
+    Chat::Message.with_deleted.where(chat_channel_id: fixture_channels, user_id: bot_id).destroy_all
+  end
   DiscourseRepoActivity::ChannelRead.where(chat_channel_id: fixture_channels).delete_all
   sim.connections.each do |fixture_connection|
     fixture_connection.events.delete_all
