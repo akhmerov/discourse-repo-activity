@@ -22,13 +22,9 @@ module DiscourseRepoActivity
             password: SecureRandom.hex(32),
             active: true,
             approved: true,
-            trust_level: 4
+            trust_level: 4,
           )
-        bot.user_option.update!(
-          email_level: 2,
-          email_messages_level: 2,
-          email_digests: false
-        )
+        bot.user_option.update!(email_level: 2, email_messages_level: 2, email_digests: false)
         PluginStore.set(PLUGIN_NAME, "bot_user_id", bot.id)
         bot
       end

@@ -10,7 +10,7 @@ RSpec.describe "Repository management" do
       created_by: admin,
       forge: "github",
       host: "github.com",
-      repo_path: "acme/sim-tools"
+      repo_path: "acme/sim-tools",
     )
   end
 
@@ -24,18 +24,13 @@ RSpec.describe "Repository management" do
     sign_in(member)
     get "/repo-activity/channels/#{channel.id}.json"
     expect(response.status).to eq(200)
-    expect(response.body).not_to include(
-      connection.secret,
-      connection.public_id
-    )
+    expect(response.body).not_to include(connection.secret, connection.public_id)
     get "/repo-activity/channels/#{channel.id}/connections.json"
     expect(response.status).to eq(403)
     sign_in(admin)
     get "/repo-activity/channels/#{channel.id}/connections.json"
     expect(response.status).to eq(200)
-    expect(response.parsed_body["connections"].first["secret"]).to eq(
-      connection.secret
-    )
+    expect(response.parsed_body["connections"].first["secret"]).to eq(connection.secret)
     expect(response.headers["Cache-Control"]).to include("no-store")
   end
 
@@ -53,20 +48,11 @@ RSpec.describe "Repository management" do
     older = connection.events.create!(chat_channel_id: channel.id, kind: "push")
     newer = connection.events.create!(chat_channel_id: channel.id, kind: "push")
     sign_in(member)
-    put "/repo-activity/channels/#{channel.id}/read.json",
-        params: {
-          last_seen_event_id: older.id
-        }
+    put "/repo-activity/channels/#{channel.id}/read.json", params: { last_seen_event_id: older.id }
     get "/repo-activity/channels/#{channel.id}.json"
     expect(response.parsed_body["new_count"]).to eq(1)
-    put "/repo-activity/channels/#{channel.id}/read.json",
-        params: {
-          last_seen_event_id: newer.id
-        }
-    put "/repo-activity/channels/#{channel.id}/read.json",
-        params: {
-          last_seen_event_id: older.id
-        }
+    put "/repo-activity/channels/#{channel.id}/read.json", params: { last_seen_event_id: newer.id }
+    put "/repo-activity/channels/#{channel.id}/read.json", params: { last_seen_event_id: older.id }
     get "/repo-activity/channels/#{channel.id}.json"
     expect(response.parsed_body["new_count"]).to eq(0)
   end
@@ -83,7 +69,7 @@ RSpec.describe "Repository management" do
     put "/repo-activity/channels/#{channel.id}/connections/#{connection.id}.json",
         params: { enabled_events: [] }.to_json,
         headers: {
-          "CONTENT_TYPE" => "application/json"
+          "CONTENT_TYPE" => "application/json",
         }
     expect(response.status).to eq(200)
     expect(connection.reload.enabled_events).to eq([])
@@ -97,7 +83,7 @@ RSpec.describe "Repository management" do
          params: {
            forge: "github",
            host: "github.com",
-           repo_path: "acme/private"
+           repo_path: "acme/private",
          }
     expect(response.status).to eq(403)
     invalid = connection.dup
@@ -106,9 +92,7 @@ RSpec.describe "Repository management" do
     expect(invalid).not_to be_valid
     expect(invalid.errors[:chat_channel]).to be_present
     expect(
-      dm.user_chat_channel_memberships.where(
-        user_id: DiscourseRepoActivity::Bot.user.id
-      )
+      dm.user_chat_channel_memberships.where(user_id: DiscourseRepoActivity::Bot.user.id),
     ).to be_empty
   end
 
@@ -118,10 +102,7 @@ RSpec.describe "Repository management" do
     messages =
       MessageBus.track_publish("/repo-activity/#{channel.id}") do
         [event.id, 0].each do |id|
-          put "/repo-activity/channels/#{channel.id}/read.json",
-              params: {
-                last_seen_event_id: id
-              }
+          put "/repo-activity/channels/#{channel.id}/read.json", params: { last_seen_event_id: id }
           expect(response.status).to eq(200)
         end
       end
@@ -133,8 +114,8 @@ RSpec.describe "Repository management" do
         MessageBus::Client.new(
           client_id: "other",
           user_id: admin.id,
-          message_bus: MessageBus
-        ).allowed?(message)
+          message_bus: MessageBus,
+        ).allowed?(message),
       ).to eq(false)
     end
   end
@@ -145,15 +126,13 @@ RSpec.describe "Repository management" do
     DiscourseRepoActivity::Snapshot
       .expects(:publish)
       .with do |published_channel|
-        expect(
-          DiscourseRepoActivity::Connection.connection.open_transactions
-        ).to eq(baseline)
+        expect(DiscourseRepoActivity::Connection.connection.open_transactions).to eq(baseline)
         published_channel.id == channel.id
       end
       .twice
     put "/repo-activity/channels/#{channel.id}/connections/#{connection.id}.json",
         params: {
-          enabled: false
+          enabled: false,
         }
     expect(response.status).to eq(200)
     post "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/rotate.json"

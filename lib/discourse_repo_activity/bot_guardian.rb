@@ -14,8 +14,7 @@ module DiscourseRepoActivity
     end
 
     def can_post_in_chatable?(chatable, **_options)
-      chatable == @connection.chat_channel.chatable &&
-        @connection.active_channel?
+      chatable == @connection.chat_channel.chatable && @connection.active_channel?
     end
 
     def can_see_chatable?(chatable)

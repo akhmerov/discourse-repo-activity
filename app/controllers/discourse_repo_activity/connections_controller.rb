@@ -7,24 +7,14 @@ module DiscourseRepoActivity
     def index
       response.headers["Cache-Control"] = "no-store"
       render json: {
-               connections:
-                 Connection.where(chat_channel_id: @channel.id).map(
-                   &:management_json
-                 )
+               connections: Connection.where(chat_channel_id: @channel.id).map(&:management_json),
              }
     end
 
     def create
       connection =
-        Connection.new(
-          connection_params.merge(
-            chat_channel: @channel,
-            created_by: current_user
-          )
-        )
-      connection.enabled_events = Connection::EVENTS if !params.key?(
-        :enabled_events
-      )
+        Connection.new(connection_params.merge(chat_channel: @channel, created_by: current_user))
+      connection.enabled_events = Connection::EVENTS if !params.key?(:enabled_events)
       save_and_render(connection)
       Snapshot.publish(@channel) if connection.errors.empty?
     end
@@ -32,9 +22,7 @@ module DiscourseRepoActivity
     def update
       connection = find_connection
       connection.with_lock do
-        connection.assign_attributes(
-          params.permit(:enabled, enabled_events: [])
-        )
+        connection.assign_attributes(params.permit(:enabled, enabled_events: []))
         save_and_render(connection)
       end
       Snapshot.publish(@channel) if connection.errors.empty?
@@ -69,14 +57,7 @@ module DiscourseRepoActivity
     end
 
     def connection_params
-      params.permit(
-        :forge,
-        :host,
-        :repo_path,
-        :display_name,
-        :enabled,
-        enabled_events: []
-      )
+      params.permit(:forge, :host, :repo_path, :display_name, :enabled, enabled_events: [])
     end
 
     def save_and_render(connection)
@@ -84,10 +65,7 @@ module DiscourseRepoActivity
         response.headers["Cache-Control"] = "no-store"
         render json: connection.management_json
       else
-        render json: {
-                 errors: connection.errors.full_messages
-               },
-               status: :unprocessable_entity
+        render json: { errors: connection.errors.full_messages }, status: :unprocessable_entity
       end
     end
   end
