@@ -478,15 +478,37 @@
 
 .repo-activity__chip {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--primary-low);
   border-radius: var(--d-border-radius);
   color: var(--primary);
   font-size: var(--font-down-1);
-  max-width: 100%;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+
+  &:is(a):hover,
+  &:is(a):focus-visible {
+    border-color: var(--tertiary);
+    color: var(--primary);
+  }
+}
+
+.repo-activity__chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repo-activity__chip-state,
+.repo-activity__chip-failure {
+  flex: none;
+}
+
+.repo-activity__chip-state {
+  color: var(--primary-medium);
 }
 
 .repo-activity__chip-failure {

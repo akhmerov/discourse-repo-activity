@@ -89,8 +89,9 @@ export default class RepoActivityCard extends Component {
               {{on "click" this.open}}
             >
               <span aria-hidden="true" class={{repo.dot}}></span><span
+                class="repo-activity__chip-name"
               >{{repo.name}}</span>
-              {{#if repo.paused}}<span>{{i18n
+              {{#if repo.paused}}<span class="repo-activity__chip-state">{{i18n
                     "repo_activity.state.paused"
                   }}</span>{{/if}}
               {{#if repo.failure}}<span
@@ -100,8 +101,9 @@ export default class RepoActivityCard extends Component {
           {{else}}
             <span aria-label={{repo.ariaLabel}} class={{repo.chipClass}}>
               <span aria-hidden="true" class={{repo.dot}}></span><span
+                class="repo-activity__chip-name"
               >{{repo.name}}</span>
-              {{#if repo.paused}}<span>{{i18n
+              {{#if repo.paused}}<span class="repo-activity__chip-state">{{i18n
                     "repo_activity.state.paused"
                   }}</span>{{/if}}
               {{#if repo.failure}}<span
