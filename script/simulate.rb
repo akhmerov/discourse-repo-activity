@@ -27,6 +27,23 @@ end
 
 module RepoActivitySimulation
   extend self
+  def presentation_time(index, count, quiet:, lag:)
+    days =
+      (0..14).map { |offset| Date.current - offset }.reject { |day| day.saturday? || day.sunday? }
+    days = days.drop(2) if quiet
+    days = days.first(6).reverse
+    available =
+      (
+        if days.last == Date.current
+          ((Time.current - days.last.in_time_zone.change(hour: 9)) / 60 - lag).floor.clamp(0, 439)
+        else
+          439 - lag
+        end
+      )
+    slot = index * ((days.length - 1) * 440 + available) / [count - 1, 1].max
+    days[slot / 440].in_time_zone.change(hour: 9) + (slot % 440).minutes
+  end
+
   PREFIX = "sim_"
   NAMES = [
     "Mira Vale",
@@ -783,7 +800,7 @@ when "showcase"
   sim.report
 when "polish"
   # Presentation only: replace compressed-counter titles/numbers with plausible
-  # research work. Keep receipt times, fixture_event order, CI state and message IDs.
+  # research work. Retain event order, CI state and message IDs.
   sim.connections.each do |repo|
     recovered = {}
     repo
@@ -834,6 +851,7 @@ when "polish"
           actor_login: sim::AUTHORS[(repo.id + index) % sim::AUTHORS.length],
         )
       end
+    commit_sequence = 0
     repo
       .events
       .where(kind: "push")
@@ -841,7 +859,46 @@ when "polish"
       .each_with_index do |push_event, index|
         summary = push_event.summary.deep_dup
         Array(summary["commits"]).each_with_index do |commit, offset|
-          commit["message"] = sim::REPO_WORK.fetch(repo.display_name)[(index + offset) % 3]
+          sequence = commit_sequence
+          commit_sequence += 1
+          workloads = [
+            "small fixtures",
+            "archived measurements",
+            "single-worker runs",
+            "parallel jobs",
+            "empty input",
+            "full-resolution data",
+            "repeated trials",
+            "near-zero values",
+            "large batches",
+            "nonuniform samples",
+          ]
+          checks = [
+            "after cancellation",
+            "on a clean install",
+            "with cached results",
+            "under memory pressure",
+            "after a restart",
+            "with missing metadata",
+            "at double precision",
+            "with deterministic seeds",
+            "after serialization",
+            "at the convergence threshold",
+            "with shuffled inputs",
+            "on the reference dataset",
+            "after changing the tolerance",
+            "with a reduced time step",
+            "on a resumed job",
+            "without optional accelerators",
+            "with a different partition",
+            "using the calibration snapshot",
+            "after upgrading dependencies",
+            "on the regression workload",
+          ]
+          base = sim::REPO_WORK.fetch(repo.display_name)[sequence % 3]
+          commit[
+            "message"
+          ] = "#{base} for #{workloads[(sequence / 3) % workloads.length]} #{checks[(sequence / 30) % checks.length]}"
           commit["author"] = sim::AUTHORS[(repo.id + index + offset) % sim::AUTHORS.length]
         end
         push_event.update!(
@@ -849,6 +906,23 @@ when "polish"
           actor_login: sim::AUTHORS[(repo.id + index) % sim::AUTHORS.length],
         )
       end
+    # Preserve receipt order while spreading activity over real working days.
+    ordered = repo.events.order(:id).to_a
+    ordered.each_with_index do |fixture_event, index|
+      time =
+        sim.presentation_time(
+          index,
+          ordered.length,
+          quiet: repo.chat_channel.name == "Planning",
+          lag: 5 + (repo.id % 4) * 23,
+        )
+      fixture_event.update_columns(created_at: time)
+    end
+    repo.update_columns(last_delivery_at: ordered.last&.reload&.created_at)
+    repo.refs.each do |ref|
+      time = repo.events.where("summary->>'ref' = ?", ref.ref_name).maximum(:created_at)
+      ref.update_columns(updated_at: time) if time
+    end
     repo
       .events
       .where.not(chat_message_id: nil)
@@ -873,6 +947,25 @@ when "polish"
         message.revisions.delete_all
       end
   end
+  sim
+    .connections
+    .map(&:chat_channel)
+    .uniq
+    .each do |channel|
+      messages = channel.chat_messages.order(:id).to_a
+      messages.each_with_index do |message, index|
+        time =
+          sim.presentation_time(
+            index,
+            messages.length,
+            quiet: channel.name == "Planning",
+            lag: 4 + channel.id % 7,
+          )
+        message.update_columns(created_at: time, updated_at: time)
+      end
+      latest = channel.chat_messages.where(deleted_at: nil, thread_id: nil).order(:id).last
+      channel.update_columns(last_message_id: latest.id) if latest
+    end
   people = sim.users(40)
   sim
     .connections

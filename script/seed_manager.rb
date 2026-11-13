@@ -39,6 +39,15 @@ repos =
   end
 
 if mode == "seed"
+  repos.each { |repo| DiscourseRepoActivity::DeliveryStatus.clear(repo) }
+  repos[1].update!(
+    delivery_status: "waiting",
+    last_delivery_at: nil,
+    last_delivery_error: nil,
+    last_delivery_error_at: nil,
+    rejected_deliveries: 0,
+    status_written_at: nil,
+  )
   repos.first.update!(
     received_event_types: {
       push: Time.current.iso8601,
@@ -48,9 +57,17 @@ if mode == "seed"
   )
   DiscourseRepoActivity::DeliveryStatus.record(repos.first, "receiving")
   if DiscourseRepoActivity::DeliveryStatus.count(repos[1]).zero?
-    3.times { DiscourseRepoActivity::DeliveryStatus.record(repos[1], "wrong_secret") }
+    3.times { DiscourseRepoActivity::DeliveryStatus.reject_unverified(repos[1], "wrong_secret") }
   end
-  repos[2].update!(delivery_status: "waiting", missing_hook_events: [])
+  repos[2].update!(
+    delivery_status: "waiting",
+    missing_hook_events: [],
+    last_delivery_at: nil,
+    last_delivery_error: nil,
+    last_delivery_error_at: nil,
+    rejected_deliveries: 0,
+    status_written_at: nil,
+  )
   repos[3].update!(enabled: false)
 elsif %w[connected warnings rejected].include?(mode)
   body = JSON.generate(hook: { events: mode == "warnings" ? ["push"] : %w[push workflow_run] })
