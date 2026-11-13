@@ -13,9 +13,8 @@ module ::DiscourseRepoActivity
   PLUGIN_NAME = "discourse-repo-activity"
 
   def self.can_view?(channel, user)
-    user.present? && !user.suspended? && channel.present? &&
-      !channel.trashed? && user.guardian.can_chat? &&
-      user.guardian.can_preview_chat_channel?(channel)
+    user.present? && !user.suspended? && channel.present? && !channel.trashed? &&
+      user.guardian.can_chat? && user.guardian.can_preview_chat_channel?(channel)
   end
 
   # One extension point, shared by the API and both management entry points.
@@ -25,7 +24,7 @@ module ::DiscourseRepoActivity
         :repo_activity_channel_manager,
         user.staff?,
         channel,
-        user
+        user,
       )
   end
 end
@@ -40,6 +39,10 @@ require_relative "lib/discourse_repo_activity/snapshot"
 
 after_initialize do
   require_relative "lib/discourse_repo_activity/bot_guardian"
+
+  require_relative "lib/discourse_repo_activity/incident_replies"
+  Chat::CreateMessage.singleton_class.prepend(DiscourseRepoActivity::IncidentReplies)
+  on(:chat_message_created) { |message| DiscourseRepoActivity::Announcer.preserve_reply(message) }
 
   Discourse::Application.routes.append do
     mount ::DiscourseRepoActivity::Engine, at: "/repo-activity"
