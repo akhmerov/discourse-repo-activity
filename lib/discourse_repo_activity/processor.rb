@@ -15,7 +15,6 @@ module DiscourseRepoActivity
         c.refs.where(ref_name: data[:ref_name]).delete_all
         return if kind == "pr_closed" || kind == "push"
       end
-      return if !%w[push ci pr_opened].include?(kind) && c.enabled_events.exclude?(kind)
       summary = data[:summary].merge(sha: data[:sha], ref: data[:ref_name]).compact
       loud = !%w[push ci].include?(kind)
       if %w[push ci pr_opened].include?(kind) && data[:ref_name].present?
@@ -68,20 +67,14 @@ module DiscourseRepoActivity
               if ref.failing_since.nil? || recovery_recorded?(c, ref)
                 ref.failing_since = Time.current
               end
-              if c.enabled_events.include?("failure") &&
-                   !(previous_state == "failed" && previous_sha == data[:sha])
+              if !(previous_state == "failed" && previous_sha == data[:sha])
                 kind = "failure"
                 loud = true
               end
             elsif ref.ci_state == "success" && ref.failing_since
-              if c.enabled_events.include?("recovery") || ref.failure_message_id.present?
-                unless recovery_recorded?(c, ref)
-                  kind = "recovery"
-                  loud = true
-                end
-              else
-                ref.failing_since = nil
-                ref.failure_message_id = nil
+              unless recovery_recorded?(c, ref)
+                kind = "recovery"
+                loud = true
               end
             end
           end
@@ -93,9 +86,6 @@ module DiscourseRepoActivity
         ref.pushed_by_login = data[:actor] if kind == "push"
         ref.save!
       end
-      # Disabling recovery replies must never strand a posted red alert.
-      cleanup = kind == "recovery" && ref&.failure_message_id.present?
-      return if c.enabled_events.exclude?(kind) && !cleanup
       c.events.create!(
         chat_channel_id: c.chat_channel_id,
         kind: kind,

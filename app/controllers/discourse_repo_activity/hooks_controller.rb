@@ -10,10 +10,13 @@ module DiscourseRepoActivity
     MAX_BODY = 1.megabyte
 
     def create
-      connection = Connection.find_by(public_id: params[:public_id])
-      raise Discourse::NotFound unless connection&.active_channel?
+      connection = Connection.find_by(public_id: request.path_parameters[:public_id])
+      raise Discourse::NotFound unless connection
       body = request.body.read(MAX_BODY + 1)
-      return head :payload_too_large if body.bytesize > MAX_BODY
+      if body.bytesize > MAX_BODY
+        DeliveryStatus.record(connection, "invalid_payload")
+        return head :payload_too_large
+      end
       unless Signature.valid?(connection, body, request.headers)
         RateLimiter.new(
           nil,
@@ -21,78 +24,137 @@ module DiscourseRepoActivity
           120,
           1.minute,
         ).performed!
-        record_error(connection, "Invalid signature")
+        header = connection.forge == "github" ? "X-Hub-Signature-256" : "X-Gitlab-Token"
+        DeliveryStatus.record(
+          connection,
+          request.headers[header].blank? ? "missing_signature" : "wrong_secret",
+        )
         return head :unauthorized
       end
       RateLimiter.new(nil, "repo-activity:#{connection.id}", 120, 1.minute).performed!
+      unless connection.active_channel?
+        DeliveryStatus.record(connection, "archived")
+        return head :not_found
+      end
       delivery =
         request.headers[
-          (
-            if connection.forge == "github"
-              "X-GitHub-Delivery"
-            else
-              "X-Gitlab-Event-UUID"
-            end
-          )
+          connection.forge == "github" ? "X-GitHub-Delivery" : "X-Gitlab-Event-UUID"
         ].to_s
-      raise Discourse::InvalidParameters if delivery.blank? || delivery.bytesize > 200
+      if delivery.blank? || delivery.bytesize > 200
+        DeliveryStatus.record(connection, "invalid_payload")
+        return head :bad_request
+      end
       key = "repo-activity:delivery:#{connection.id}:#{Digest::SHA256.hexdigest(delivery)}"
       return head :ok unless Discourse.redis.set(key, "1", nx: true, ex: 24.hours.to_i)
       begin
         connection.with_lock do
           connection.chat_channel.with_lock do
-            # Recheck after locks: archive, disable and secret rotation can race delivery.
-            raise Discourse::NotFound unless connection.active_channel?
-            unless Signature.valid?(connection, body, request.headers)
-              raise Discourse::InvalidAccess
+            unless connection.active_channel?
+              Discourse.redis.del(key)
+              DeliveryStatus.record(connection, "archived")
+              return head :not_found
             end
-            payload = JSON.parse(body)
+            unless Signature.valid?(connection, body, request.headers)
+              Discourse.redis.del(key)
+              DeliveryStatus.record(connection, "wrong_secret")
+              return head :unauthorized
+            end
+            # GitHub signs the form envelope, not the decoded JSON value.
+            json =
+              if connection.forge == "github" &&
+                   request.media_type == "application/x-www-form-urlencoded"
+                values = URI.decode_www_form(body).select { |name, _| name == "payload" }
+                raise Discourse::InvalidParameters unless values.length == 1
+                values.first.last
+              else
+                body
+              end
+            payload = JSON.parse(json)
             raise Discourse::InvalidParameters unless payload.is_a?(Hash)
-            event_name =
-              request.headers[
+            event =
+              request.headers[connection.forge == "github" ? "X-GitHub-Event" : "X-Gitlab-Event"]
+            missing = nil
+            if connection.forge == "github" && event == "ping"
+              hook = payload["hook"]
+              raise Discourse::InvalidParameters unless hook.nil? || hook.is_a?(Hash)
+              enabled = hook&.fetch("events", nil)
+              unless enabled.nil?
+                raise Discourse::InvalidParameters unless enabled.is_a?(Array)
+                raise Discourse::InvalidParameters unless enabled.all?(String)
+              end
+              enabled ||= []
+              missing = enabled.include?("*") ? [] : DeliveryStatus::EVENTS - enabled
+              status = "receiving"
+            else
+              parsed = Parser.new(connection, payload).parse(event)
+              # GitLab's test push is indistinguishable from a real push. A
+              # pre-connection commit can verify setup without replaying old work.
+              stale_test =
+                connection.forge == "gitlab" && event == "Push Hook" && connection.events.empty? &&
+                  Array(payload["commits"]).any? &&
+                  Array(payload["commits"]).all? do |commit|
+                    time =
+                      begin
+                        Time.iso8601(commit["timestamp"].to_s)
+                      rescue StandardError
+                        nil
+                      end
+                    time && time < connection.created_at.change(usec: 0)
+                  end
+              Processor.new(connection).process(parsed) if parsed && !stale_test
+              supported =
                 (
                   if connection.forge == "github"
-                    "X-GitHub-Event"
+                    %w[push workflow_run pull_request issues release]
                   else
-                    "X-Gitlab-Event"
+                    [
+                      "Push Hook",
+                      "Tag Push Hook",
+                      "Pipeline Hook",
+                      "Merge Request Hook",
+                      "Issue Hook",
+                      "Release Hook",
+                    ]
                   end
                 )
+              status = supported.include?(event) ? "receiving" : "ignored_event"
+            end
+            connection.save! if connection.changed?
+            type =
+              {
+                "push" => "push",
+                "Push Hook" => "push",
+                "workflow_run" => "pipeline",
+                "Pipeline Hook" => "pipeline",
+                "pull_request" => "pull_request",
+                "Merge Request Hook" => "pull_request",
+                "issues" => "issue",
+                "Issue Hook" => "issue",
+                "release" => "release",
+                "Release Hook" => "release",
+                "Tag Push Hook" => "tag",
+              }[
+                event
               ]
-            parsed = Parser.new(connection, payload).parse(event_name)
-            Processor.new(connection).process(parsed) if parsed
-            connection.update!(last_delivery_at: Time.current, last_delivery_error: nil)
+            type = "tag" if event == "push" && payload["ref"].to_s.start_with?("refs/tags/")
+            DeliveryStatus.record(connection, status, missing: missing, event_type: type)
           end
         end
-      rescue JSON::ParserError, Discourse::InvalidParameters
+      rescue JSON::ParserError, ArgumentError, Discourse::InvalidParameters
         Discourse.redis.del(key)
-        record_error(connection, "Invalid payload")
+        DeliveryStatus.record(connection, "invalid_payload")
         return head :bad_request
       rescue StandardError
         Discourse.redis.del(key)
         raise
       end
-      Discourse.redis.del("repo-activity:error:#{connection.id}")
       Snapshot.publish(connection.chat_channel)
       head :ok
     end
 
-    # Raw webhook fields must not enter the Rails request log.
     def append_info_to_payload(payload)
       super
       payload[:params] = {}
-    end
-
-    private
-
-    def record_error(connection, error)
-      if Discourse.redis.set(
-           "repo-activity:error:#{connection.id}",
-           "1",
-           nx: true,
-           ex: 1.minute.to_i,
-         )
-        connection.update_columns(last_delivery_error: error)
-      end
     end
   end
 end

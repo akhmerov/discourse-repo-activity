@@ -36,6 +36,9 @@ require_relative "lib/discourse_repo_activity/processor"
 require_relative "lib/discourse_repo_activity/bot"
 require_relative "lib/discourse_repo_activity/announcer"
 require_relative "lib/discourse_repo_activity/snapshot"
+require_relative "lib/discourse_repo_activity/delivery_status"
+register_svg_icon "fab-github"
+register_svg_icon "fab-gitlab"
 
 after_initialize do
   require_relative "lib/discourse_repo_activity/bot_guardian"

@@ -264,21 +264,8 @@
   }
 }
 
-.repo-activity__connection {
-  padding-block: 1em;
-  border-bottom: 1px solid var(--primary-low);
 
-  input:not([type="checkbox"]) {
-    width: 100%;
-  }
-}
 
-.repo-activity__toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6em;
-  margin-block: 1em;
-}
 
 .repo-activity__settings {
   margin: 1em;
@@ -288,4 +275,180 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
+}
+
+.repo-activity__manager {
+  .d-modal__container {
+    width: min(42em, calc(100vw - var(--space-4)));
+  }
+
+  .d-modal__body {
+    color: var(--primary);
+  }
+}
+
+.repo-manager__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--primary-low);
+
+  .d-toggle-switch {
+  flex: 0 0 auto;
+}
+}
+
+.repo-manager__forge {
+  flex: 0 0 auto;
+  font-size: var(--font-up-1);
+  color: var(--primary-high);
+}
+
+.repo-manager__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-manager__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.repo-manager__status {
+  color: var(--primary-high);
+  font-size: var(--font-down-1);
+  margin-top: var(--space-1);
+}
+
+.repo-manager__status--wrong_secret,
+.repo-manager__status--missing_signature,
+.repo-manager__status--invalid_payload,
+.repo-manager__status--ignored_event,
+.repo-manager__status--archived {
+  color: var(--danger);
+}
+
+.repo-manager__status--paused,
+.repo-manager__status--waiting {
+  color: var(--primary-medium);
+}
+
+.repo-manager__inline.btn {
+  padding: 0;
+  font-size: inherit;
+  color: var(--tertiary);
+  min-height: 0;
+}
+
+.repo-manager__menu-trigger {
+  flex: 0 0 auto;
+}
+
+.repo-manager__menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 15em;
+  padding: var(--space-2);
+  background: var(--secondary);
+}
+
+.repo-manager__menu > .btn,
+.repo-manager__menu > a {
+  text-align: start;
+  justify-content: flex-start;
+  padding: var(--space-2);
+}
+
+.repo-manager__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.repo-manager__footer > span,
+.repo-manager__steps,
+.repo-manager__note {
+  color: var(--primary-high);
+  font-size: var(--font-down-1);
+}
+
+.repo-manager__back {
+  margin-bottom: var(--space-3);
+}
+
+.repo-manager__heading {
+  overflow-wrap: anywhere;
+}
+
+.repo-manager__preview {
+  min-height: 1.5em;
+  color: var(--tertiary);
+}
+
+.repo-manager__instructions {
+  margin-inline-start: var(--space-5);
+  padding-inline-start: var(--space-2);
+}
+
+.repo-manager__instructions > li {
+  padding-inline-start: var(--space-2);
+  margin-block: var(--space-4);
+}
+
+.repo-manager__instructions p {
+  margin-block: var(--space-2);
+}
+
+.repo-manager__copy-field {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.repo-manager__copy-field input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  margin: 0;
+  font-family: var(--font-family-monospace);
+  font-size: var(--font-down-1);
+}
+
+.repo-manager__check {
+  padding: var(--space-4);
+  background: var(--primary-very-low);
+  border-radius: var(--d-border-radius);
+}
+
+
+
+@media (width <= 600px) {
+  .repo-activity__manager .d-modal__container {
+  width: 100%;
+  max-width: 100%;
+}
+
+  .repo-manager__row {
+  gap: var(--space-2);
+}
+
+  .repo-manager__footer {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+  .repo-manager__copy-field .btn {
+  padding-inline: var(--space-2);
+}
+}
+
+.repo-manager__seen {
+  color: var(--primary-high);
+  font-size: var(--font-down-1);
+  margin: var(--space-1) 0 0;
 }

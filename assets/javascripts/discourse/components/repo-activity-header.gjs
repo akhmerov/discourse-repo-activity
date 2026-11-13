@@ -1,5 +1,6 @@
 import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
+import { fn } from "@ember/helper";
 import { action } from "@ember/object";
 import { cancel, debounce } from "@ember/runloop";
 import { service } from "@ember/service";
@@ -150,7 +151,10 @@ export default class RepoActivityHeader extends Component {
   }
 
   @action
-  manage() {
+  async manage(close) {
+    if (typeof close === "function") {
+      await close();
+    }
     this.modal.show(RepoActivityManager, {
       model: { channelId: this.args.channel.id },
     });
@@ -202,7 +206,7 @@ export default class RepoActivityHeader extends Component {
                 class="repo-activity__compact-label"
               >{{this.compactLabel}}</span>
             </:trigger>
-            <:content>
+            <:content as |menu|>
               <div class="repo-activity__content">
                 <RepoActivityPopover
                   @channelId={{@channel.id}}
@@ -213,7 +217,7 @@ export default class RepoActivityHeader extends Component {
                 {{#if this.data.can_manage}}
                   <DButton
                     class="btn-default repo-activity__manage"
-                    @action={{this.manage}}
+                    @action={{fn this.manage menu.close}}
                     @label="repo_activity.manage"
                   />
                 {{/if}}

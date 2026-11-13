@@ -51,13 +51,112 @@ en:
         pr_opened: "PR/MR opened"
         pr_merged: "PR/MR merged"
         issue_opened: "Issue opened"
-      event:
-        push: "Pushes (quiet)"
-        ci: "Pipelines (quiet)"
-        failure: "Default branch failure alerts"
-        recovery: "CI recovered"
-        release: "Releases"
-        tag: "Tags"
-        pr_opened: "PR/MR opened"
-        pr_merged: "PR/MR merged"
-        issue_opened: "Issues opened"
+      manager:
+        back: "Back"
+        actions: "Actions for %{name}"
+        setup: "Setup instructions"
+        open_forge: "Open on %{forge}"
+        new_secret: "New secret…"
+        empty: "Connect a repository to follow its activity in this channel."
+        per_repo: "Each repo has its own webhook address and secret."
+        paused: "Paused · deliveries are ignored"
+        waiting: "Waiting for first delivery"
+        receiving: "Receiving · last delivery %{age} ago"
+        rejected:
+          one: "Last delivery rejected: %{reason}"
+          other: "Last %{count} deliveries rejected: %{reason}"
+        finish_setup: "Finish setup"
+        fix_setup: "Fix setup"
+        address: "Repository address"
+        invalid_address: "Enter a repository address, such as github.com/owner/repo or gitlab.example.org/group/project."
+        preview_github: "GitHub · repository %{repo_path}"
+        preview_gitlab: "GitLab at %{host} · project %{repo_path}"
+        access: "You need Admin access on GitHub or Maintainer access on GitLab to add a webhook. You can continue and copy the instructions to someone who has it."
+        continue: "Continue"
+        step_repo: "1 Repo › 2 Webhook › 3 Check — Repo"
+        step_webhook: "1 Repo › 2 Webhook › 3 Check — Webhook"
+        step_check: "1 Repo › 2 Webhook › 3 Check — Check"
+        open_settings: "Open the repository’s webhook settings."
+        open_github: "Open GitHub → Add webhook"
+        open_gitlab: "Open GitLab → Webhooks"
+        gitlab_add: "Choose Add new webhook."
+        payload_url: "Payload URL"
+        content_type: "Content type: either option works (application/json or application/x-www-form-urlencoded)."
+        secret_token: "Secret token"
+        copy: "Copy"
+        show: "Show"
+        hide: "Hide"
+        copied: "Copied to clipboard."
+        github_events: 'Choose “Let me select individual events”. Use these checkboxes:'
+        gitlab_events: "GitLab ticks only Push events by default. Tick Pipeline events too, then choose any optional triggers:"
+        github_finish: "Click Add webhook. GitHub sends a ping immediately."
+        gitlab_finish: "Keep Enable SSL verification on, then Add webhook. On the webhook’s row, choose Test → Push events."
+        copy_instructions: "Copy instructions for a repo admin"
+        added: "I’ve added it"
+        connected: "✓ Connected"
+        waiting_test: "Waiting for %{forge}’s test delivery…"
+        check_again: "Check again"
+        done: "Done"
+        rotate_confirm: "Create a new secret? Deliveries will fail until the webhook on the forge is updated."
+        rotated_warning: "This is a new secret. Deliveries fail until you update the secret on the forge."
+        remove_confirm: "Remove %{name} from this channel? Its webhook will stop working."
+        reason:
+          wrong_secret: "wrong secret"
+          missing_signature: "missing signature or secret token"
+          invalid_payload: "invalid payload"
+          ignored_event: "event is not supported"
+          archived: "channel is unavailable or archived"
+        fix:
+          wrong_secret: "Wrong secret. Re-copy it from Setup instructions. On GitHub, choose Redeliver in Recent Deliveries; on GitLab, choose Test → Push events."
+          missing_signature: "No signature or secret token received. Copy the secret into the forge’s Secret field and send another test delivery."
+          invalid_payload: "The delivery could not be decoded. Use GitHub’s JSON or form content type, or GitLab’s standard webhook payload, then test again."
+          ignored_event: "This event is not supported. Enable the events in Setup instructions and send a test delivery."
+          archived: "This channel is unavailable or archived. Reopen it and enable this repository before testing again."
+        missing:
+          push: "Pushes are not enabled, so commits will not appear. Edit the GitHub webhook, tick Pushes, then send another ping."
+          workflow_run: "Workflow runs are not enabled, so CI status and failure alerts will not appear. Edit the GitHub webhook and tick Workflow runs."
+          pull_request: "Pull requests are off. Opened and merged PRs will not appear in the stream or chat."
+          issues: "Issues are off. Opened issues will not appear in the stream or chat."
+          release: "Releases are off. Releases will not appear in the stream or chat."
+        copy_steps_github: |
+          Open %{settings}
+          Payload URL: %{url}
+          Content type: either application/json or application/x-www-form-urlencoded.
+          Secret: %{secret}
+          Choose “Let me select individual events”. Required: Pushes and Workflow runs.
+          Optional (untick if you do not want these in chat): Pull requests, Issues, Releases.
+          GitHub sends tags with required Pushes; tags cannot be disabled separately.
+          Click Add webhook; GitHub sends a ping. Keep SSL verification enabled.
+        copy_steps_gitlab: |
+          Open %{settings}, then Add new webhook.
+          URL: %{url}
+          Secret token: %{secret}
+          Required triggers: Push events and Pipeline events.
+          Optional (untick if you do not want these in chat): Tag push events, Issues events, Merge request events, Releases events.
+          Keep SSL verification enabled, then Add webhook.
+          On the webhook’s row, choose Test → Push events.
+        required: "required"
+        optional: "optional · untick if you don’t want these in chat"
+        github_tags: "GitHub sends tags with required Pushes; tags cannot be disabled separately."
+        seen: "Seen in the last 7 days: %{types}"
+        seen_types:
+          push: "pushes"
+          pipeline: "pipelines"
+          pull_request: "pull/merge requests"
+          issue: "issues"
+          release: "releases"
+          tag: "tags"
+        triggers:
+          github:
+            push: "Pushes"
+            workflow: "Workflow runs"
+            pr: "Pull requests"
+            issue: "Issues"
+            release: "Releases"
+          gitlab:
+            push: "Push events"
+            pipeline: "Pipeline events"
+            tag: "Tag push events"
+            mr: "Merge request events"
+            issue: "Issues events"
+            release: "Releases events"

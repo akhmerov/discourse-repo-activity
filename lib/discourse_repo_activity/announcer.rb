@@ -85,13 +85,11 @@ module DiscourseRepoActivity
               end
             end
             update(message.id, render_message(message, ref, events))
-            if ref.ci_state == "success" && @connection.enabled_events.include?("recovery")
+            if ref.ci_state == "success"
               create(
                 "#{escape(c.display_name)} fixed in #{escape(ref.head_sha.to_s[0, 8])}",
                 reply_to: message.id,
               )
-              ref.update!(failure_message_id: nil, failing_since: nil)
-            elsif ref.ci_state == "success"
               ref.update!(failure_message_id: nil, failing_since: nil)
             end
           end
@@ -122,13 +120,11 @@ module DiscourseRepoActivity
             .each do |name|
               ref = c.refs.find_by(ref_name: name)
               next unless ref
-              if ref.ci_state == "success" && @connection.enabled_events.include?("recovery")
+              if ref.ci_state == "success"
                 create(
                   "#{escape(c.display_name)} fixed in #{escape(ref.head_sha.to_s[0, 8])}",
                   reply_to: message.id,
                 )
-                ref.update!(failure_message_id: nil, failing_since: nil)
-              elsif ref.ci_state == "success"
                 ref.update!(failure_message_id: nil, failing_since: nil)
               else
                 ref.update!(failure_message_id: message.id)
@@ -167,13 +163,11 @@ module DiscourseRepoActivity
             parent.id,
             "**#{announcer.send(:escape, c.display_name)}**\n#{fixed}",
           )
-          if c.enabled_events.include?("recovery")
-            announcer.send(
-              :create,
-              "#{announcer.send(:escape, c.display_name)} #{fixed}",
-              reply_to: parent.id,
-            )
-          end
+          announcer.send(
+            :create,
+            "#{announcer.send(:escape, c.display_name)} #{fixed}",
+            reply_to: parent.id,
+          )
         end
       end
     end
@@ -270,7 +264,7 @@ module DiscourseRepoActivity
         next unless ref
         status =
           (
-            if ref.ci_state == "success" && @connection.enabled_events.include?("recovery")
+            if ref.ci_state == "success"
               "fixed in #{escape(ref.head_sha.to_s[0, 8])}"
             else
               "CI failing on #{escape(name)} (#{escape(ref_events.reverse.find { |e| e.kind == "failure" }&.summary&.dig("sha").to_s[0, 8])})"

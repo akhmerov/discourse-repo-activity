@@ -3,7 +3,6 @@
 module DiscourseRepoActivity
   class Connection < ActiveRecord::Base
     self.table_name = "repo_activity_connections"
-    EVENTS = %w[push ci failure recovery release tag pr_opened pr_merged issue_opened].freeze
     belongs_to :chat_channel, class_name: "Chat::Channel"
     belongs_to :created_by, class_name: "User"
     has_many :refs, class_name: "DiscourseRepoActivity::Ref", dependent: :delete_all
@@ -26,9 +25,6 @@ module DiscourseRepoActivity
     validates :display_name, presence: true, length: { maximum: 100 }
     validates :public_id, presence: true, uniqueness: true
     validate do
-      unless enabled_events.is_a?(Array) && (enabled_events - EVENTS).empty?
-        errors.add(:enabled_events, "contains unknown events")
-      end
       if repo_path.to_s.split("/").any? { |s| %w[. ..].include?(s) }
         errors.add(:repo_path, "contains invalid segments")
       end
@@ -58,11 +54,19 @@ module DiscourseRepoActivity
         "host",
         "repo_path",
         "display_name",
-        "enabled_events",
         "enabled",
         "last_delivery_at",
         "last_delivery_error",
-      ).merge(webhook_url: "#{Discourse.base_url}/repo-activity/hooks/#{public_id}", secret: secret)
+        "last_delivery_error_at",
+        "delivery_status",
+        "missing_hook_events",
+      ).merge(
+        webhook_url: "#{Discourse.base_url}/repo-activity/hooks/#{public_id}",
+        repository_url: repository_url,
+        rejected_deliveries: DeliveryStatus.count(self),
+        recent_event_types:
+          received_event_types.select { |_kind, time| Time.iso8601(time) >= 7.days.ago }.keys,
+      )
     end
 
     def discard_pending!

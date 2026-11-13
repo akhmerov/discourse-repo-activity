@@ -30,7 +30,10 @@ RSpec.describe "Repository management" do
     sign_in(admin)
     get "/repo-activity/channels/#{channel.id}/connections.json"
     expect(response.status).to eq(200)
-    expect(response.parsed_body["connections"].first["secret"]).to eq(connection.secret)
+    expect(response.parsed_body["connections"].first).not_to have_key("secret")
+    get "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/secret.json"
+    expect(response.status).to eq(200)
+    expect(response.parsed_body["secret"] == connection.secret).to eq(true)
     expect(response.headers["Cache-Control"]).to include("no-store")
   end
 
@@ -64,15 +67,11 @@ RSpec.describe "Repository management" do
     expect(response.status).to eq(404)
   end
 
-  it "allows managers to disable every event" do
+  it "has no per-connection event setting in storage or the management API" do
     sign_in(admin)
-    put "/repo-activity/channels/#{channel.id}/connections/#{connection.id}.json",
-        params: { enabled_events: [] }.to_json,
-        headers: {
-          "CONTENT_TYPE" => "application/json",
-        }
-    expect(response.status).to eq(200)
-    expect(connection.reload.enabled_events).to eq([])
+    get "/repo-activity/channels/#{channel.id}/connections.json"
+    expect(response.parsed_body["connections"].sole).not_to have_key("enabled_events")
+    expect(connection.has_attribute?(:enabled_events)).to eq(false)
   end
 
   it "rejects DM connections both through the API and model" do
@@ -137,5 +136,67 @@ RSpec.describe "Repository management" do
     expect(response.status).to eq(200)
     post "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/rotate.json"
     expect(response.status).to eq(200)
+  end
+
+  it "authorizes status and explicit secret access and never shares status with viewers" do
+    DiscourseRepoActivity::DeliveryStatus.record(connection, "wrong_secret")
+    sign_in(member)
+    get "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/secret.json"
+    expect(response.status).to eq(403)
+    get "/repo-activity/channels/#{channel.id}.json"
+    expect(response.body).not_to include("delivery_status", "rejected_deliveries", "wrong_secret")
+    sign_in(admin)
+    get "/repo-activity/channels/#{channel.id}/connections.json"
+    row = response.parsed_body.fetch("connections").sole
+    expect(row).to include("delivery_status" => "wrong_secret", "rejected_deliveries" => 1)
+    expect(row).not_to have_key("secret")
+    expect(response.headers["Cache-Control"]).to include("no-store")
+  end
+
+  it "sends management invalidations only to registered current managers" do
+    sign_in(admin)
+    get "/repo-activity/channels/#{channel.id}/connections.json"
+    DiscourseRepoActivity::DeliveryStatus.watch(channel, member)
+    messages =
+      MessageBus.track_publish("/repo-activity/management/#{channel.id}") do
+        DiscourseRepoActivity::DeliveryStatus.record(connection, "wrong_secret")
+      end
+    expect(messages.sole.user_ids).to eq([admin.id])
+    expect(messages.sole.data).to eq(refresh: true)
+    admin.update!(suspended_till: 1.year.from_now)
+    expect(DiscourseRepoActivity.can_manage?(channel, User.find(admin.id))).to eq(false)
+    messages =
+      MessageBus.track_publish("/repo-activity/management/#{channel.id}") do
+        DiscourseRepoActivity::DeliveryStatus.record(connection, "missing_signature")
+      end
+    expect(messages).to be_empty
+  end
+
+  it "rotates one connection and requires a new verified setup delivery" do
+    sign_in(admin)
+    previous = connection.secret
+    DiscourseRepoActivity::DeliveryStatus.record(connection, "receiving")
+    post "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/rotate.json"
+    expect(response.status).to eq(200)
+    expect(connection.reload.secret == previous).to eq(false)
+    expect(connection.delivery_status).to eq("waiting")
+    expect(response.parsed_body).not_to have_key("secret")
+  end
+
+  it "keeps repository rows in a stable order after state updates" do
+    other =
+      DiscourseRepoActivity::Connection.create!(
+        chat_channel: channel,
+        created_by: admin,
+        forge: "github",
+        host: "github.com",
+        repo_path: "acme/another",
+      )
+    connection.update!(enabled: false)
+    sign_in(admin)
+    get "/repo-activity/channels/#{channel.id}/connections.json"
+    expect(response.parsed_body.fetch("connections").map { |row| row.fetch("id") }).to eq(
+      [connection.id, other.id],
+    )
   end
 end

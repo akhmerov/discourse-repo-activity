@@ -261,30 +261,6 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(connection.events.where(kind: "recovery", loud: true, chat_message_id: nil)).to be_empty
   end
 
-  it "updates state with quiet CI off and gates failure and recovery independently" do
-    connection.update!(enabled_events: %w[failure recovery])
-    workflow
-    expect(connection.refs.first.ci_state).to eq("failed")
-    expect(connection.events.order(:id).pluck(:kind)).to eq(["failure"])
-    announce
-    workflow(status: "success", run_attempt: 2)
-    announce
-    expect(connection.events.order(:id).pluck(:kind)).to eq(%w[failure recovery])
-    expect(connection.refs.first.failing_since).to be_nil
-  end
-
-  it "clears recovery without an alert when failure posting is off" do
-    connection.update!(enabled_events: %w[ci recovery])
-    workflow
-    announce
-    workflow(status: "success", run_attempt: 2)
-    announce
-    expect(Chat::Message.where(chat_channel: channel)).to be_empty
-    expect(connection.refs.first.failing_since).to be_nil
-    workflow(status: "success", run_attempt: 3)
-    expect(connection.events.where(kind: "recovery").count).to eq(1)
-  end
-
   it "keeps workflows with duplicate names independent and cancellations neutral" do
     workflow(workflow_id: 21)
     workflow(workflow_id: 22, status: "success")
@@ -348,18 +324,6 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(fragment.css("img, script, .mention, .hashtag, .onebox")).to be_empty
   end
 
-  it "keeps quiet CI records and clears incidents when recovery alerts are off" do
-    connection.update!(enabled_events: %w[ci])
-    workflow
-    expect(connection.refs.first.ci_state).to eq("failed")
-    expect(connection.events.order(:id).pluck(:kind)).to eq(["ci"])
-    workflow(status: "success", run_attempt: 2)
-    expect(connection.refs.first.failing_since).to be_nil
-    expect(connection.events.order(:id).pluck(:kind)).to eq(%w[ci ci])
-    announce
-    expect(Chat::Message.where(chat_channel: channel)).to be_empty
-  end
-
   it "uses the failure event sha when editing an existing alert after a newer push" do
     workflow
     announce
@@ -378,27 +342,6 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     announce
     expect(connection.events.where(kind: "recovery")).to be_empty
     expect(Chat::Message.where(chat_channel: channel).count).to eq(1)
-  end
-
-  it "silences a same-window failure when green with recovery disabled" do
-    connection.update!(enabled_events: %w[failure ci issue_opened])
-    workflow
-    workflow(status: "success", run_attempt: 2)
-    repo_process(connection, repo_parse(connection, "github_issues", "issues"))
-    announce
-    expect(Chat::Message.where(chat_channel: channel).sole.message).to include("Bug in solver")
-    expect(Chat::Message.where(chat_channel: channel).sole.message).not_to include("CI failing")
-    expect(connection.events.where(kind: "failure", loud: true, chat_message_id: nil)).to be_empty
-  end
-
-  it "cleans a recovered alert even if recovery replies were disabled after receipt" do
-    workflow
-    announce
-    message = Chat::Message.where(chat_channel: channel).sole
-    workflow(status: "success", run_attempt: 2)
-    connection.update!(enabled_events: %w[failure])
-    announce
-    expect(message.reload).to be_trashed
   end
 
   it "keeps posted incident state through transient channel inactivity" do
@@ -550,24 +493,6 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(connection.events.where(kind: "recovery").count).to eq(2)
   end
 
-  it "cleans posted alerts with recovery replies disabled and fixes human discussions without a bot reply" do
-    connection.update!(enabled_events: %w[push failure ci])
-    workflow
-    announce
-    alert = Chat::Message.where(chat_channel: channel, user: bot).sole
-    workflow(status: "success", run_attempt: 2)
-    announce
-    expect(alert.reload).to be_trashed
-    workflow(id: 201)
-    announce
-    kept = Chat::Message.where(chat_channel: channel, user: bot).sole
-    human_reply(kept)
-    workflow(status: "success", id: 202)
-    announce
-    expect(kept.reload.message).to include("fixed in aaaaaaaa")
-    expect(Chat::Message.where(in_reply_to_id: kept.id, user: bot)).to be_empty
-  end
-
   it "renders issue numbers as literal identifiers without tag links" do
     repo_process(
       connection,
@@ -627,25 +552,5 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     queries = track_sql_queries { expect(human_reply(alert)).to be_success }
     expect(queries.grep(/repo_activity_connections.*FOR UPDATE/)).to be_present
     expect(queries.grep(/chat_channels.*FOR UPDATE/)).to be_present
-  end
-
-  it "restores a late human reply without a recovery reply when the toggle is off" do
-    workflow
-    announce
-    alert = Chat::Message.where(chat_channel: channel).sole
-    workflow(status: "success", run_attempt: 2)
-    announce
-    connection.update!(enabled_events: %w[failure])
-    reply =
-      Chat::Message.create!(
-        chat_channel: channel,
-        user: alice,
-        in_reply_to_id: alert.id,
-        message: "Investigating",
-      )
-    described_class.preserve_reply(reply)
-    expect(alert.reload).not_to be_trashed
-    expect(alert.message).to include("fixed in")
-    expect(Chat::Message.where(in_reply_to_id: alert.id, user: bot)).not_to exist
   end
 end
