@@ -45,6 +45,8 @@ export default class RepoActivityHeader extends Component {
 
   constructor() {
     super(...arguments);
+    const requestId = this.repoActivityNavigation.requestId;
+    this.navigationRequest = requestId;
     this.busChannel = `/repo-activity/${this.args.channel.id}`;
     ajax(`/repo-activity/channels/${this.args.channel.id}.json`)
       .then((data) => {
@@ -58,11 +60,17 @@ export default class RepoActivityHeader extends Component {
           );
         }
       })
-      .catch(() => {});
+      .catch(() =>
+        this.repoActivityNavigation.cancel(this.args.channel.id, requestId)
+      );
   }
 
   willDestroy() {
     super.willDestroy(...arguments);
+    this.repoActivityNavigation.cancel(
+      this.args.channel.id,
+      this.navigationRequest
+    );
     this.messageBus.unsubscribe(this.busChannel, this.receive);
     cancel(this.#refreshJob);
   }
@@ -70,12 +78,12 @@ export default class RepoActivityHeader extends Component {
   get accessibleLabel() {
     const repos = this.data?.repos || [];
     return i18n("repo_activity.header_accessible", {
-      passing: repos.filter((repo) => repo.default_ref?.ci_state === "success")
-        .length,
+      passing: repos.filter((repo) => repo.state === "success").length,
       failing: repos.filter((repo) => repo.failing).length,
       pending: repos.filter((repo) =>
-        ["pending", "running"].includes(repo.default_ref?.ci_state)
+        ["pending", "running"].includes(repo.state)
       ).length,
+      paused: repos.filter((repo) => repo.enabled === false).length,
       count: this.data?.new_count || 0,
     });
   }
@@ -88,10 +96,10 @@ export default class RepoActivityHeader extends Component {
     const state = this.failing
       ? "failed"
       : this.data?.repos?.some((repo) =>
-            ["pending", "running"].includes(repo.default_ref?.ci_state)
+            ["pending", "running"].includes(repo.state)
           )
         ? "running"
-        : this.data?.repos?.[0]?.default_ref?.ci_state || "none";
+        : this.data?.repos?.find((repo) => repo.enabled)?.state || "paused";
     return `repo-activity__pill repo-activity__pill--${state}`;
   }
 
@@ -101,7 +109,9 @@ export default class RepoActivityHeader extends Component {
     if (repos.length === 1) {
       label = i18n("repo_activity.single", {
         name: repos[0].display_name,
-        age: age(repos[0].last_activity_at),
+        age: repos[0].enabled
+          ? age(repos[0].last_activity_at)
+          : i18n("repo_activity.state.paused"),
       });
     } else {
       label = i18n("repo_activity.multiple", { count: repos.length });
@@ -110,6 +120,10 @@ export default class RepoActivityHeader extends Component {
         label = i18n("repo_activity.failing", { label, count });
       }
     }
+    const paused = repos.filter((repo) => repo.enabled === false).length;
+    if (repos.length > 1 && paused) {
+      label = i18n("repo_activity.paused_count", { label, count: paused });
+    }
     return this.data?.new_count
       ? i18n("repo_activity.new_count", { label, count: this.data.new_count })
       : label;
@@ -117,8 +131,7 @@ export default class RepoActivityHeader extends Component {
 
   @action
   registerMenu(menu) {
-    if (this.repoActivityNavigation.channelId === this.args.channel.id) {
-      this.repoActivityNavigation.channelId = null;
+    if (this.repoActivityNavigation.consume(this.args.channel.id)) {
       scheduleOnce("afterRender", menu, menu.show);
     }
   }
@@ -232,8 +245,12 @@ export default class RepoActivityHeader extends Component {
                   "code-branch"
                 }}</span>
               {{#if this.data.new_count}}<span
-                  aria-hidden="true"
+                  aria-label={{i18n
+                    "repo_activity.new_updates"
+                    count=this.data.new_count
+                  }}
                   class="repo-activity__badge c-unread-indicator chat-thread-header-unread-indicator"
+                  role="img"
                 ><span
                     class="c-unread-indicator__number"
                   >{{this.data.new_count}}</span></span>{{/if}}

@@ -544,3 +544,12 @@
     right: -0.2em;
   }
 }
+
+.repo-activity__chip--paused,
+.repo-activity__repo-row--paused {
+  color: var(--primary-medium);
+}
+
+.repo-activity__repo-row--paused .repo-activity__repo-state {
+  color: inherit;
+}

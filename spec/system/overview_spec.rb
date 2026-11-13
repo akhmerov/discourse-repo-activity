@@ -62,7 +62,7 @@ RSpec.describe "Workspace repository overview" do
     expect(page).to have_css(".repo-activity__chip", count: 5)
     expect(page).to have_css(".repo-activity__chip", text: "+1")
     expect(page).to have_css(".repo-activity__chip-failure", text: "main failing")
-    expect(page).to have_css(".repo-activity__card-new", text: "5 new commits")
+    expect(page).to have_css(".repo-activity__card-new", text: "5 new")
     find(".repo-activity__chip", text: "repo-0").click
     expect(page).to have_css(".repo-activity__popover")
     expect(page).to have_no_css(".repo-activity__pill", text: "5 new")
@@ -79,7 +79,128 @@ RSpec.describe "Workspace repository overview" do
       },
     )
     DiscourseRepoActivity::Snapshot.publish_now(@channel)
-    expect(page).to have_css(".repo-activity__card-new", text: "1 new commit", exact_text: true)
+    expect(page).to have_css(".repo-activity__card-new", text: "1 new", exact_text: true)
+  end
+
+  it "shows paused failures as muted, with no red header and unchanged unread counts" do
+    DiscourseRepoActivity::Ref.where(
+      connection_id: DiscourseRepoActivity::Connection.where(chat_channel: @channel).select(:id),
+    ).update_all(ci_state: "success")
+    connection =
+      DiscourseRepoActivity::Connection.find_by!(chat_channel: @channel, repo_path: "acme/repo-0")
+    connection.refs.update_all(ci_state: "failed")
+    connection.update!(enabled: false)
+    visit("#{@workspace.url}/overview")
+    expect(page).to have_css(".repo-activity__chip--paused", text: /repo-0\s*Paused/)
+    expect(page).to have_no_css(".repo-activity__chip-failure")
+    expect(page).to have_css(".repo-activity__card-new", text: "5 new")
+    find(".repo-activity__chip--paused").click
+    expect(page).to have_css(".repo-activity__repo-row--paused", text: "Paused")
+    expect(page).to have_no_css(".repo-activity__pill--failed")
+  end
+
+  it "uses snapshot bus cursors and chunks 201 channels without replay or losing rows" do
+    visit("/latest")
+    sizes = []
+    page.driver.with_playwright_page do |browser|
+      pattern = %r{/repo-activity/overview\.json}
+      browser.route(
+        pattern,
+        ->(route, request) do
+          ids =
+            URI
+              .decode_www_form(URI(request.url).query)
+              .select { |key, _| key == "channel_ids[]" }
+              .map(&:last)
+          sizes << ids.length
+          route.fulfill(
+            status: 200,
+            contentType: "application/json",
+            body: {
+              channels:
+                ids.to_h { |id| [id, { repos: [], new_count: 0, message_bus_last_id: 41 }] },
+            }.to_json,
+          )
+        end,
+      )
+      page.execute_script(<<~JS)
+        const service = Discourse.lookup('service:repo-activity-overview');
+        const bus = service.messageBus;
+        window.busCursors = [];
+        const subscribe = bus.subscribe;
+        bus.subscribe = function(channel, callback, cursor) {
+          if (Number(channel.split('/').at(-1)) >= 100001) { window.busCursors.push(cursor); return; }
+          return subscribe.call(this, channel, callback, cursor);
+        };
+        window.stopBatch = service.watch(() => Array.from({length: 201}, (_, i) => ({chat_channel_id: 100001 + i})));
+      JS
+      try_until_success do
+        expect(
+          page.evaluate_script(
+            "Object.keys(Discourse.lookup('service:repo-activity-overview').channels).length",
+          ),
+        ).to eq(201)
+      end
+      expect(sizes.sort).to eq([1, 200])
+      expect(page.evaluate_script("window.busCursors.length")).to eq(201)
+      expect(page.evaluate_script("window.busCursors.every(cursor => cursor === 41)")).to eq(true)
+      page.execute_script("window.stopBatch()")
+    ensure
+      browser.unroute(pattern)
+    end
+  end
+
+  it "expires pending navigation and cancels it when another route wins" do
+    visit("#{@workspace.url}/overview")
+    expect(page).to have_css(".repo-activity__chip")
+    page.execute_script(<<~JS)
+      const nav = Discourse.lookup('service:repo-activity-navigation');
+      nav.request(#{@channel.id});
+      nav.expiresAt = Date.now() - 1;
+    JS
+    expect(
+      page.evaluate_script(
+        "Discourse.lookup('service:repo-activity-navigation').consume(#{@channel.id})",
+      ),
+    ).to eq(false)
+    page.execute_script(
+      "Discourse.lookup('service:repo-activity-navigation').request(#{@channel.id}); Discourse.lookup('service:router').transitionTo('/latest')",
+    )
+    try_until_success do
+      expect(
+        page.evaluate_script(
+          "Discourse.lookup('service:repo-activity-navigation').channelId === null",
+        ),
+      ).to eq(true)
+    end
+    page.execute_script(
+      "Discourse.lookup('service:router').transitionTo('/chat/c/#{@channel.slug}/#{@channel.id}')",
+    )
+    expect(page).to have_css(".repo-activity__pill")
+    expect(page).to have_no_css(".repo-activity__popover")
+    expect(
+      DiscourseRepoActivity::ChannelRead.where(user_id: user.id, chat_channel_id: @channel.id),
+    ).not_to exist
+  end
+
+  it "renders join-first chips as plain text below the description, without unread links" do
+    visit("#{@workspace.url}/overview")
+    expect(page).to have_css(".repo-activity__chip")
+    page.execute_script(<<~JS)
+      const route = Discourse.lookup('service:router').currentRouteName;
+      const model = Discourse.lookup('controller:' + route).model;
+      const channel = model.activeChannels.find(c => c.chat_channel_id === #{@channel.id});
+      channel.joined = false; channel.can_open_topics = false; channel.can_join = true;
+    JS
+    expect(page).to have_css("span.repo-activity__chip", count: 5)
+    expect(page).to have_no_css("a.repo-activity__chip, .repo-activity__card-new")
+    expect(page).to have_css('.repo-activity__card[role="group"]')
+    expect(page).to have_css('[aria-label="1 more repository"]')
+    expect(
+      page.evaluate_script(
+        "(() => { const row = document.querySelector('.repo-activity__card'); return row.getBoundingClientRect().top > row.closest('.workspace-groups-overview__card').querySelector('.workspace-groups-overview__channel-description').getBoundingClientRect().bottom; })()",
+      ),
+    ).to eq(true)
   end
 
   it "fits the full Repository setup title at 390px in mobile view", mobile: true do

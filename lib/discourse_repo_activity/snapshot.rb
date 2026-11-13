@@ -36,7 +36,8 @@ module DiscourseRepoActivity
               enabled: c.enabled,
               default_branch: c.default_branch,
               default_ref: default_ref,
-              failing: default_ref&.dig("ci_state") == "failed",
+              failing: c.enabled? && default_ref&.dig("ci_state") == "failed",
+              state: c.enabled? ? default_ref&.dig("ci_state") || "none" : "paused",
               last_activity_at: latest&.created_at,
               new_count: user ? c.events.visible.where("id > ?", seen.to_i).count : nil,
             }

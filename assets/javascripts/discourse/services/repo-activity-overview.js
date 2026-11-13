@@ -13,6 +13,7 @@ export default class RepoActivityOverview extends Service {
   job;
   loading = false;
   again = false;
+  generation = 0;
 
   watch(channels) {
     const token = {};
@@ -26,7 +27,9 @@ export default class RepoActivityOverview extends Service {
       if (!this.consumers.size) {
         window.removeEventListener("focus", this.refreshSoon);
         cancel(this.job);
-        this.syncSubscriptions([]);
+        this.generation++;
+        this.again = false;
+        this.syncSubscriptions({});
         this.channels = {};
       } else {
         this.refreshSoon();
@@ -39,8 +42,10 @@ export default class RepoActivityOverview extends Service {
     this.job = debounce(this, this.refresh, 200);
   }
 
-  syncSubscriptions(ids) {
-    const next = new Set(ids.map((id) => `/repo-activity/${id}`));
+  syncSubscriptions(channels) {
+    const next = new Set(
+      Object.keys(channels).map((id) => `/repo-activity/${id}`)
+    );
     for (const channel of this.subscribed) {
       if (!next.has(channel)) {
         this.messageBus.unsubscribe(channel, this.refreshSoon);
@@ -48,7 +53,11 @@ export default class RepoActivityOverview extends Service {
     }
     for (const channel of next) {
       if (!this.subscribed.has(channel)) {
-        this.messageBus.subscribe(channel, this.refreshSoon, 0);
+        this.messageBus.subscribe(
+          channel,
+          this.refreshSoon,
+          channels[channel.split("/").at(-1)].message_bus_last_id
+        );
       }
     }
     this.subscribed = next;
@@ -71,15 +80,26 @@ export default class RepoActivityOverview extends Service {
     if (!ids.length) {
       return;
     }
-    // Subscribe first: an update racing the HTTP snapshot requests another batch.
-    this.syncSubscriptions(ids);
+    const generation = this.generation;
     this.loading = true;
     try {
-      const result = await ajax("/repo-activity/overview.json", {
-        data: { channel_ids: ids },
-      });
-      if (this.consumers.size) {
-        this.channels = result.channels;
+      const chunks = [];
+      for (let index = 0; index < ids.length; index += 200) {
+        chunks.push(
+          ajax("/repo-activity/overview.json", {
+            data: { channel_ids: ids.slice(index, index + 200) },
+          })
+        );
+      }
+      const results = await Promise.all(chunks);
+      if (this.consumers.size && generation === this.generation) {
+        const channels = Object.assign(
+          {},
+          ...results.map((result) => result.channels)
+        );
+        this.channels = channels;
+        // Each cursor predates its snapshot: replay only updates racing that request.
+        this.syncSubscriptions(channels);
       }
     } catch {
       // A background failure must not interrupt the overview.

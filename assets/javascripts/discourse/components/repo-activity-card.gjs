@@ -34,6 +34,8 @@ export default class RepoActivityCard extends Component {
     return (this.data?.repos || []).slice(0, 4).map((repo) => ({
       ...repo,
       ariaLabel: `${repo.name}: ${i18n(`repo_activity.state.${repo.state}`)}`,
+      paused: repo.state === "paused",
+      chipClass: `repo-activity__chip${repo.state === "paused" ? " repo-activity__chip--paused" : ""}`,
       dot: `repo-activity__dot repo-activity__dot--${repo.state}`,
       failure:
         repo.state === "failed"
@@ -43,6 +45,10 @@ export default class RepoActivityCard extends Component {
             })
           : null,
     }));
+  }
+
+  get canOpen() {
+    return Boolean(this.args.outletArgs.canOpen);
   }
 
   get more() {
@@ -59,7 +65,11 @@ export default class RepoActivityCard extends Component {
       return;
     }
     event.preventDefault();
-    this.repoActivityNavigation.channelId = this.channel.chat_channel_id;
+    if (!this.canOpen) {
+      return;
+    }
+    const id = this.channel.chat_channel_id;
+    this.repoActivityNavigation.request(id);
     this.router.transitionTo(this.url);
   }
 
@@ -68,34 +78,64 @@ export default class RepoActivityCard extends Component {
       <div
         aria-label={{i18n "repo_activity.manage"}}
         class="repo-activity__card"
+        role="group"
       >
         {{#each this.repos key="id" as |repo|}}
-          <a
-            aria-label={{repo.ariaLabel}}
-            class="repo-activity__chip"
-            href={{this.url}}
-            {{on "click" this.open}}
-          >
-            <span aria-hidden="true" class={{repo.dot}}></span><span
-            >{{repo.name}}</span>
-            {{#if repo.failure}}<span
-                class="repo-activity__chip-failure"
-              >{{repo.failure}}</span>{{/if}}
-          </a>
+          {{#if this.canOpen}}
+            <a
+              aria-label={{repo.ariaLabel}}
+              class={{repo.chipClass}}
+              href={{this.url}}
+              {{on "click" this.open}}
+            >
+              <span aria-hidden="true" class={{repo.dot}}></span><span
+              >{{repo.name}}</span>
+              {{#if repo.paused}}<span>{{i18n
+                    "repo_activity.state.paused"
+                  }}</span>{{/if}}
+              {{#if repo.failure}}<span
+                  class="repo-activity__chip-failure"
+                >{{repo.failure}}</span>{{/if}}
+            </a>
+          {{else}}
+            <span aria-label={{repo.ariaLabel}} class={{repo.chipClass}}>
+              <span aria-hidden="true" class={{repo.dot}}></span><span
+              >{{repo.name}}</span>
+              {{#if repo.paused}}<span>{{i18n
+                    "repo_activity.state.paused"
+                  }}</span>{{/if}}
+              {{#if repo.failure}}<span
+                  class="repo-activity__chip-failure"
+                >{{repo.failure}}</span>{{/if}}
+            </span>
+          {{/if}}
         {{/each}}
-        {{#if this.more}}<a
-            class="repo-activity__chip"
-            href={{this.url}}
-            {{on "click" this.open}}
-          >+{{this.more}}</a>{{/if}}
-        {{#if this.data.new_count}}<a
-            class="repo-activity__card-new"
-            href={{this.url}}
-            {{on "click" this.open}}
-          >{{i18n
-              "repo_activity.overview_new"
-              count=this.data.new_count
-            }}</a>{{/if}}
+        {{#if this.more}}
+          {{#if this.canOpen}}<a
+              aria-label={{i18n
+                "repo_activity.more_repositories"
+                count=this.more
+              }}
+              class="repo-activity__chip"
+              href={{this.url}}
+              {{on "click" this.open}}
+            >+{{this.more}}</a>
+          {{else}}<span
+              aria-label={{i18n
+                "repo_activity.more_repositories"
+                count=this.more
+              }}
+              class="repo-activity__chip"
+            >+{{this.more}}</span>{{/if}}
+        {{/if}}
+        {{#if this.canOpen}}{{#if this.data.new_count}}<a
+              class="repo-activity__card-new"
+              href={{this.url}}
+              {{on "click" this.open}}
+            >{{i18n
+                "repo_activity.overview_new"
+                count=this.data.new_count
+              }}</a>{{/if}}{{/if}}
       </div>
     {{/if}}
   </template>

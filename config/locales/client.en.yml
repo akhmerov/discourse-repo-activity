@@ -2,11 +2,18 @@ en:
   js:
     repo_activity:
       activity: "Activity"
-      header_accessible: "Repositories: %{passing} passing, %{failing} failing, %{pending} pending, %{count} new"
+      header_accessible: "Repositories: %{passing} passing, %{failing} failing, %{pending} pending, %{paused} paused, %{count} new updates"
       overview_failure: "%{branch} failing · %{age}"
       overview_new:
-        one: "%{count} new commit"
-        other: "%{count} new commits"
+        one: "%{count} new"
+        other: "%{count} new"
+      paused_count: "%{label} · %{count} paused"
+      new_updates:
+        one: "%{count} new update"
+        other: "%{count} new updates"
+      more_repositories:
+        one: "%{count} more repository"
+        other: "%{count} more repositories"
       all_repos: "All repos"
       idle: "idle"
       since_looked: "Since you looked"
@@ -41,6 +48,7 @@ en:
         github: "In repository Settings → Webhooks, add this URL, select application/json, and paste the secret. Enable Pushes, Workflow runs, Pull requests, Issues, and Releases. Workflow status combines the runs received for each commit; it cannot detect runs that have not delivered a webhook."
         gitlab: "In project Settings → Webhooks, add this URL and paste the secret token. Enable Push events, Tag push events, Pipeline events, Merge request events, Issues events, and Release events. Enable SSL verification."
       state:
+        paused: "Paused"
         none: "No CI received"
         pending: "Pending"
         running: "Running"

@@ -39,7 +39,43 @@ RSpec.describe DiscourseRepoActivity::OverviewController do
     expect(response.parsed_body["channels"][channel.id.to_s]["new_count"]).to eq(1)
     connection.update!(enabled: false)
     get "/repo-activity/overview.json", params: { channel_ids: [channel.id] }
-    expect(response.parsed_body["channels"][channel.id.to_s]["repos"]).to eq([])
+    expect(response.parsed_body["channels"][channel.id.to_s]["repos"].sole["state"]).to eq("paused")
+  end
+
+  it "returns the bus cursor captured before reading the snapshot" do
+    old_id = MessageBus.publish("/repo-activity/#{channel.id}", { refresh: true })
+    cursor = MessageBus.last_id("/repo-activity/#{channel.id}")
+    get "/repo-activity/overview.json", params: { channel_ids: [channel.id] }
+    expect(response.parsed_body["channels"][channel.id.to_s]["message_bus_last_id"]).to eq(cursor)
+    expect(old_id).to be_present
+  end
+
+  it "includes paused failing repositories without treating them as failures" do
+    connection.update!(enabled: false, default_branch: "main")
+    connection.refs.create!(
+      ref_name: "main",
+      kind: "branch",
+      ci_state: "failed",
+      head_sha: "a" * 40,
+    )
+    event("push")
+    get "/repo-activity/overview.json", params: { channel_ids: [channel.id] }
+    row = response.parsed_body["channels"][channel.id.to_s]
+    expect(row["repos"].sole["state"]).to eq("paused")
+    expect(row["new_count"]).to eq(1)
+    snapshot = DiscourseRepoActivity::Snapshot.for(channel, user)
+    expect(snapshot[:repos].sole[:failing]).to eq(false)
+    expect(snapshot[:repos].sole[:state]).to eq("paused")
+    expect(snapshot[:new_count]).to eq(1)
+  end
+
+  it "includes readable read-only and closed channels like the header" do
+    %i[read_only closed].each do |status|
+      channel.update!(status: status)
+      expect(DiscourseRepoActivity.can_view?(channel, user)).to eq(true)
+      get "/repo-activity/overview.json", params: { channel_ids: [channel.id] }
+      expect(response.parsed_body["channels"].keys).to eq([channel.id.to_s])
+    end
   end
 
   it "authorizes every channel including mixed public/private requests" do

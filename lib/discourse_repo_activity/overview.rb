@@ -7,13 +7,14 @@ module DiscourseRepoActivity
       return {} if user.suspended? || !guardian.can_chat?
       channels =
         Chat::Channel
-          .where(id: ids, chatable_type: "Category", deleted_at: nil, status: :open)
+          .where(id: ids, chatable_type: "Category", deleted_at: nil)
           .includes(:chatable)
           .select { |channel| guardian.can_preview_chat_channel?(channel) }
       ids = channels.map(&:id)
       return {} if ids.empty?
-      connections =
-        Connection.where(chat_channel_id: ids, enabled: true).includes(:refs).order(:id).to_a
+      bus_ids =
+        channels.to_h { |channel| [channel.id, MessageBus.last_id("/repo-activity/#{channel.id}")] }
+      connections = Connection.where(chat_channel_id: ids).includes(:refs).order(:id).to_a
       latest =
         Event.where(connection_id: connections.map(&:id)).group(:connection_id).maximum(:created_at)
       # Exactly the header/stream predicate and shared per-user cursor; no event
@@ -45,12 +46,19 @@ module DiscourseRepoActivity
               id: connection.id,
               name: connection.display_name,
               branch: connection.default_branch,
-              state: ref&.ci_state || "none",
+              state: connection.enabled? ? ref&.ci_state || "none" : "paused",
               updated_at: ref&.updated_at || latest[connection.id],
             }
           end
         repos.sort_by! { |repo| [repo[:state] == "failed" ? 0 : 1, repo[:id]] }
-        [channel.id, { repos: repos, new_count: counts.fetch(channel.id, 0) }]
+        [
+          channel.id,
+          {
+            repos: repos,
+            new_count: counts.fetch(channel.id, 0),
+            message_bus_last_id: bus_ids[channel.id],
+          },
+        ]
       end
     end
   end

@@ -39,13 +39,15 @@ export default class RepoActivityPopover extends Component {
   get repos() {
     return (this.args.data.repos || []).map((repo) => ({
       ...repo,
+      paused: repo.enabled === false,
       new_count: (this.args.newCounts?.[repo.id] || 0) + (repo.new_count || 0),
       selected: repo.id === this.selected,
       idle:
-        !repo.last_activity_at ||
-        Date.now() - new Date(repo.last_activity_at) > 14 * 86400000,
-      symbol: symbols[repo.default_ref?.ci_state || "none"],
-      stateClass: `repo-activity__dot repo-activity__dot--${repo.default_ref?.ci_state || "none"}`,
+        repo.enabled !== false &&
+        (!repo.last_activity_at ||
+          Date.now() - new Date(repo.last_activity_at) > 14 * 86400000),
+      symbol: symbols[repo.state || "none"],
+      stateClass: `repo-activity__dot repo-activity__dot--${repo.state || "none"}`,
       age: age(repo.default_ref?.updated_at || repo.last_activity_at),
     }));
   }
@@ -238,15 +240,19 @@ export default class RepoActivityPopover extends Component {
         {{#each this.activeRepos key="id" as |repo|}}
           <button
             aria-pressed={{repo.selected}}
-            class="repo-activity__repo-row {{if repo.selected 'is-selected'}}"
+            class="repo-activity__repo-row
+              {{if repo.paused 'repo-activity__repo-row--paused'}}
+              {{if repo.selected 'is-selected'}}"
             type="button"
             {{on "click" (fn this.select repo.id)}}
           >
             <span class={{repo.stateClass}}></span>
             <span class="repo-activity__repo-name">{{repo.display_name}}</span>
-            <span class="repo-activity__repo-state">{{repo.default_branch}}
-              {{repo.symbol}}
-              {{repo.age}}</span>
+            <span class="repo-activity__repo-state">{{#if repo.paused}}{{i18n
+                  "repo_activity.state.paused"
+                }}{{else}}{{repo.default_branch}}
+                {{repo.symbol}}
+                {{repo.age}}{{/if}}</span>
             {{#if repo.new_count}}<span class="repo-activity__new-count">{{i18n
                   "repo_activity.new_events"
                   count=repo.new_count
