@@ -500,7 +500,7 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     )
     announce
     fragment = Nokogiri::HTML5.fragment(Chat::Message.where(chat_channel: channel).sole.cooked)
-    expect(fragment.text).to include("Issue no. 2024")
+    expect(fragment.css("a").map(&:text).join).to include("#2024")
     expect(fragment.css(".hashtag, .mention")).to be_empty
   end
 

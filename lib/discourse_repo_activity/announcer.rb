@@ -240,12 +240,15 @@ module DiscourseRepoActivity
             "release" => "Release",
             "tag" => "Tag",
           }.fetch(e.kind, e.kind.tr("_", " "))
-          if e.summary["number"].to_s.match?(/\A[1-9]\d{0,9}\z/)
-            noun = @connection.forge == "gitlab" ? "MR" : "PR"
-            label = label.sub("PR/MR", "#{noun} no. #{e.summary["number"].to_i}")
-            label = label.sub("Issue opened", "Issue no. #{e.summary["number"].to_i} opened")
+          label = label.sub("PR/MR", @connection.forge == "gitlab" ? "MR" : "PR")
+          identifier = nil
+          if %w[pr_opened pr_merged issue_opened].include?(e.kind) &&
+               e.summary["number"].to_s.match?(/\A[1-9]\d{0,9}\z/)
+            sigil =
+              @connection.forge == "gitlab" && %w[pr_opened pr_merged].include?(e.kind) ? "!" : "#"
+            identifier = "#{sigil}#{e.summary["number"].to_i}"
           end
-          "#{label} by #{escape(e.actor_login)}: #{link(e.summary["title"], e.summary["url"])}"
+          "#{label} by #{escape(e.actor_login)}: #{link(e.summary["title"], e.summary["url"], identifier: identifier)}"
         end
       # Cap bursts by kind, preserving one short line for each retained event.
       output =
@@ -299,11 +302,11 @@ module DiscourseRepoActivity
       "@#{user.username}"
     end
 
-    def link(title, url)
+    def link(title, url, identifier: nil)
       if url.present?
-        "[#{title_text(title)}](#{url.gsub(/[()\\\s]/) { |s| ERB::Util.url_encode(s) }})"
+        "[#{identifier ? "#{identifier} " : ""}#{title_text(title)}](#{url.gsub(/[()\\\s]/) { |s| ERB::Util.url_encode(s) }})"
       else
-        title_text(title)
+        "#{identifier ? "`#{identifier}` " : ""}#{title_text(title)}"
       end
     end
 
