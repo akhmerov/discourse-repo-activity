@@ -10,6 +10,15 @@ module DiscourseRepoActivity
     def parse(event)
       result = @connection.forge == "github" ? github(event) : gitlab(event)
       return unless result
+      if %w[pr_opened pr_merged pr_closed issue_opened].include?(result[:kind]) ||
+           result[:ref_kind] == "pr"
+        raw = result[:pr_number] || result[:summary][:number]
+        return unless raw.to_s.match?(/\A[1-9]\d{0,9}\z/)
+        number = raw.to_i
+        result[:pr_number] = number if result.key?(:pr_number)
+        result[:ref_name] = "pr/#{number}" if result[:ref_kind] == "pr"
+        result[:summary][:number] = number if result.dig(:summary, :number)
+      end
       result[:default_branch] = text(
         @payload.dig(@connection.forge == "github" ? "repository" : "project", "default_branch"),
         200,
@@ -172,7 +181,7 @@ module DiscourseRepoActivity
           actor: actor,
           ref_name: pr ? "pr/#{number}" : attrs["ref"],
           ref_kind: pr ? "pr" : "branch",
-          pr_number: number&.to_i,
+          pr_number: number,
           sha: attrs["sha"],
           ci_state: state(attrs["status"]),
           run_name: "Pipeline",
@@ -268,7 +277,7 @@ module DiscourseRepoActivity
     end
 
     def text(value, length)
-      value.to_s.gsub(/[[:cntrl:]]/, " ").strip.truncate(length, omission: "")
+      value.to_s.gsub(/\p{Cf}/, "").gsub(/[[:cntrl:]]/, " ").strip.truncate(length, omission: "")
     end
 
     def safe_url(value)

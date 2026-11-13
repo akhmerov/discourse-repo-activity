@@ -22,7 +22,7 @@ module DiscourseRepoActivity
     def read
       # Only acknowledge what this client actually displayed; a concurrent event stays new.
       id = params.require(:last_seen_event_id).to_i
-      maximum = Event.where(chat_channel_id: @channel.id).maximum(:id).to_i
+      maximum = Event.visible.where(chat_channel_id: @channel.id).maximum(:id).to_i
       raise Discourse::InvalidParameters unless id.between?(0, maximum)
       DB.exec(<<~SQL, user_id: current_user.id, channel_id: @channel.id, event_id: id)
         INSERT INTO repo_activity_channel_reads (user_id, chat_channel_id, last_seen_event_id)
@@ -39,7 +39,7 @@ module DiscourseRepoActivity
         "/repo-activity/#{@channel.id}",
         {
           last_seen_event_id: seen,
-          new_count: Event.where(chat_channel_id: @channel.id).where("id > ?", seen).count,
+          new_count: Event.visible.where(chat_channel_id: @channel.id).where("id > ?", seen).count,
         },
         user_ids: [current_user.id],
       )

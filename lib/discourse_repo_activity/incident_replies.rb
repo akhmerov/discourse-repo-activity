@@ -11,10 +11,10 @@ module DiscourseRepoActivity
       thread_id = params[:thread_id] || params["thread_id"]
       parent_id ||= Chat::Thread.find_by(id: thread_id)&.original_message_id if thread_id
       return super unless parent_id
-      event = Event.where(chat_message_id: parent_id, kind: "failure").order(id: :desc).first
-      return super unless event
+      ref = Ref.find_by(failure_message_id: parent_id)
+      return super unless ref
       return super if context[:guardian]&.user&.id == Bot.user.id
-      connection = event.connection
+      connection = ref.connection
       connection.with_lock { connection.chat_channel.with_lock { super } }
     end
   end

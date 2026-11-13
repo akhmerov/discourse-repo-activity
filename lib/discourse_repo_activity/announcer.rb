@@ -77,9 +77,11 @@ module DiscourseRepoActivity
                       message_id: message.id,
                     },
                   )
-                raise "Repository activity alert could not be deleted" if result.failure?
-                ref.update!(failure_message_id: nil, failing_since: nil)
-                next
+                if result.success?
+                  ref.update!(failure_message_id: nil, failing_since: nil)
+                  next
+                end
+                # A native trash refusal must not strand this connection's queue.
               end
             end
             update(message.id, render_message(message, ref, events))
@@ -165,11 +167,13 @@ module DiscourseRepoActivity
             parent.id,
             "**#{announcer.send(:escape, c.display_name)}**\n#{fixed}",
           )
-          announcer.send(
-            :create,
-            "#{announcer.send(:escape, c.display_name)} #{fixed}",
-            reply_to: parent.id,
-          )
+          if c.enabled_events.include?("recovery")
+            announcer.send(
+              :create,
+              "#{announcer.send(:escape, c.display_name)} #{fixed}",
+              reply_to: parent.id,
+            )
+          end
         end
       end
     end
@@ -242,10 +246,10 @@ module DiscourseRepoActivity
             "release" => "Release",
             "tag" => "Tag",
           }.fetch(e.kind, e.kind.tr("_", " "))
-          if e.summary["number"].present?
+          if e.summary["number"].to_s.match?(/\A[1-9]\d{0,9}\z/)
             noun = @connection.forge == "gitlab" ? "MR" : "PR"
-            label = label.sub("PR/MR", "#{noun} ##{e.summary["number"]}")
-            label = label.sub("Issue opened", "Issue ##{e.summary["number"]} opened")
+            label = label.sub("PR/MR", "#{noun} no. #{e.summary["number"].to_i}")
+            label = label.sub("Issue opened", "Issue no. #{e.summary["number"].to_i} opened")
           end
           "#{label} by #{escape(e.actor_login)}: #{link(e.summary["title"], e.summary["url"])}"
         end
@@ -285,7 +289,7 @@ module DiscourseRepoActivity
       kept = []
       suffix = "#{lines.length} more events in the repository activity popover."
       lines.each do |line|
-        break if [header, *kept, line, *alerts, suffix].join("\n\n").length > limit
+        next if [header, *kept, line, *alerts, suffix].join("\n\n").length > limit
         kept << line
       end
       suffix = "#{lines.length - kept.length} more events in the repository activity popover."
@@ -319,6 +323,12 @@ module DiscourseRepoActivity
       value =
         value
           .to_s
+          .gsub(/\p{Cf}/, "")
+          .truncate(300, omission: "…")
+          .gsub(Regexp.union(Emoji.translations.keys.sort_by { |key| -key.length })) do |shortcut|
+            shortcut.chars.join(" ")
+          end
+          .gsub(%r{\[(?=/?[a-z][a-z0-9_-]*(?:[=\]\s]))}i, "[ ")
           .gsub(self.class.emoji_pattern) do |emoji|
             "[#{Emoji.unicode_replacements.fetch(emoji).tr("_", " ")}]"
           end

@@ -567,4 +567,85 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     expect(kept.reload.message).to include("fixed in aaaaaaaa")
     expect(Chat::Message.where(in_reply_to_id: kept.id, user: bot)).to be_empty
   end
+
+  it "renders issue numbers as literal identifiers without tag links" do
+    repo_process(
+      connection,
+      repo_parse(connection, "github_issues", "issues", "issue" => { "number" => "2024" }),
+    )
+    announce
+    fragment = Nokogiri::HTML5.fragment(Chat::Message.where(chat_channel: channel).sole.cooked)
+    expect(fragment.text).to include("Issue no. 2024")
+    expect(fragment.css(".hashtag, .mention")).to be_empty
+  end
+
+  it "neutralizes every emoji shortcut and unlinked date markup" do
+    [
+      *Emoji.translations.keys,
+      "[date=2026-11-13 timezone=Europe/Amsterdam]",
+      "safe\u202Ename\u200B",
+    ].each do |title|
+      text = described_class.new(connection).send(:title_text, title)
+      fragment =
+        Nokogiri::HTML5.fragment(Chat::Message.cook(text, user_id: bot.id, chat_channel: channel))
+      expect(fragment.css(".emoji, img, .discourse-local-date")).to be_empty
+      expect(text).not_to match(/\p{Cf}/)
+    end
+  end
+
+  it "caps titles and skips oversized lines while keeping short later events" do
+    announcer = described_class.new(connection)
+    expect(announcer.send(:title_text, "x" * 1000).length).to be <= 310
+    SiteSetting.chat_maximum_message_length = 1000
+    expect(announcer.send(:fit_message, "Repo", ["x" * 2000, "Short issue"], [])).to include(
+      "Short issue",
+      "1 more events",
+    )
+  end
+
+  it "fixes the alert and continues announcements when native trash refuses" do
+    workflow
+    announce
+    alert = Chat::Message.where(chat_channel: channel).sole
+    Chat::TrashMessage.stubs(:call).returns(stub(success?: false, failure?: true))
+    workflow(status: "success", run_attempt: 2)
+    expect { announce }.not_to raise_error
+    expect(alert.reload.message).to include("fixed in")
+    expect(connection.refs.first.failure_message_id).to be_nil
+    repo_process(connection, repo_parse(connection, "github_issues", "issues"))
+    announce
+    expect(Chat::Message.where(chat_channel: channel).order(:id).last.message).to include(
+      "Bug in solver",
+    )
+  end
+
+  it "locks a live incident even after its failure event was pruned" do
+    workflow
+    announce
+    alert = Chat::Message.where(chat_channel: channel).sole
+    connection.events.delete_all
+    queries = track_sql_queries { expect(human_reply(alert)).to be_success }
+    expect(queries.grep(/repo_activity_connections.*FOR UPDATE/)).to be_present
+    expect(queries.grep(/chat_channels.*FOR UPDATE/)).to be_present
+  end
+
+  it "restores a late human reply without a recovery reply when the toggle is off" do
+    workflow
+    announce
+    alert = Chat::Message.where(chat_channel: channel).sole
+    workflow(status: "success", run_attempt: 2)
+    announce
+    connection.update!(enabled_events: %w[failure])
+    reply =
+      Chat::Message.create!(
+        chat_channel: channel,
+        user: alice,
+        in_reply_to_id: alert.id,
+        message: "Investigating",
+      )
+    described_class.preserve_reply(reply)
+    expect(alert.reload).not_to be_trashed
+    expect(alert.message).to include("fixed in")
+    expect(Chat::Message.where(in_reply_to_id: alert.id, user: bot)).not_to exist
+  end
 end

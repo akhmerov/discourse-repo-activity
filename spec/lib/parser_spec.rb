@@ -247,4 +247,79 @@ RSpec.describe DiscourseRepoActivity::Parser do
       author: "Bob",
     )
   end
+
+  it "coerces valid issue and change numbers and rejects malformed identifiers" do
+    ["8", 8].each do |number|
+      expect(
+        repo_parse(
+          github,
+          "github_pull_request",
+          "pull_request",
+          "pull_request" => {
+            "number" => number,
+          },
+        )[
+          :summary
+        ][
+          :number
+        ],
+      ).to eq(8)
+      expect(
+        repo_parse(
+          gitlab,
+          "gitlab_merge_request",
+          "Merge Request Hook",
+          "object_attributes" => {
+            "iid" => number,
+          },
+        )[
+          :pr_number
+        ],
+      ).to eq(8)
+    end
+    [nil, "8 **@all**", "8x", -1, 0, "1.5"].each do |number|
+      expect(
+        repo_parse(github, "github_issues", "issues", "issue" => { "number" => number }),
+      ).to be_nil
+      expect(
+        repo_parse(
+          gitlab,
+          "gitlab_issue",
+          "Issue Hook",
+          "object_attributes" => {
+            "iid" => number,
+          },
+        ),
+      ).to be_nil
+    end
+    ["123injected", "[date=2026-11-13]"].each do |number|
+      expect(
+        repo_parse(
+          gitlab,
+          "gitlab_pipeline",
+          "Pipeline Hook",
+          "merge_request" => {
+            "iid" => number,
+          },
+        ),
+      ).to be_nil
+    end
+  end
+
+  it "strips format controls from names, titles and commit text" do
+    result =
+      repo_parse(
+        github,
+        "github_issues",
+        "issues",
+        "sender" => {
+          "login" => "al\u202Eice",
+        },
+        "issue" => {
+          "title" => "safe\u200Btitle",
+        },
+      )
+    expect(result[:actor]).to eq("alice")
+    expect(result[:summary][:title]).to eq("safetitle")
+  end
 end

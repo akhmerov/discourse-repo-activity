@@ -174,6 +174,9 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
     connection.events.create!(chat_channel_id: channel.id, kind: "ci")
     first = described_class.for(channel, member)
     expect(first[:stream].size).to eq(30)
+    expect(first[:new_count]).to eq(35)
+    expect(first[:repos].sole[:new_count]).to eq(35)
+    expect(first[:latest_event_id]).to eq(connection.events.visible.maximum(:id))
     expect(first[:stream].map { |e| e["kind"] }.uniq).to eq(["push"])
     expect(first[:repos].first).not_to have_key(:refs)
     expect(first[:repos].first).not_to have_key(:events)
@@ -186,7 +189,11 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
         .track_publish("/repo-activity/#{channel.id}") { described_class.publish_now(channel) }
         .sole
         .data
-    expect(payload[:stream].size).to eq(30)
+    expect(payload).to include(
+      refresh: true,
+      latest_event_id: connection.events.visible.maximum(:id),
+    )
+    expect(payload).not_to have_key(:stream)
     expect(payload).not_to have_key(:event_ids)
   end
 
@@ -231,5 +238,50 @@ RSpec.describe DiscourseRepoActivity::Snapshot do
     expect {
       DiscourseEvent.trigger(:chat_message_created, reply, channel, member, {})
     }.not_to raise_error
+  end
+
+  it "shows a recovery once, on its push, and uses the same filter for counts" do
+    push =
+      connection.events.create!(
+        chat_channel_id: channel.id,
+        kind: "push",
+        summary: {
+          sha: "a" * 40,
+          ci_state: "success",
+        },
+      )
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "recovery",
+      summary: {
+        sha: "a" * 40,
+      },
+    )
+    connection.events.create!(chat_channel_id: channel.id, kind: "ci")
+    data = described_class.for(channel, member)
+    expect(data[:stream].map { |event| event["id"] }).to eq([push.id])
+    expect(data[:new_count]).to eq(1)
+    expect(data[:latest_event_id]).to eq(push.id)
+    push.destroy!
+    expect(described_class.for(channel, member)[:stream].map { |event| event["kind"] }).to eq(
+      ["recovery"],
+    )
+  end
+
+  it "indexes message lookups" do
+    expect(
+      ActiveRecord::Base.connection.index_exists?(:repo_activity_events, :chat_message_id),
+    ).to eq(true)
+  end
+
+  it "acknowledges the newest item from the returned visible page" do
+    connection.events.create!(chat_channel_id: channel.id, kind: "push")
+    original = described_class.method(:stream)
+    allow(described_class).to receive(:stream) do |*args, **kwargs|
+      connection.events.create!(chat_channel_id: channel.id, kind: "push")
+      original.call(*args, **kwargs)
+    end
+    data = described_class.for(channel, member)
+    expect(data[:latest_event_id]).to eq(data[:stream].first.fetch("id"))
   end
 end

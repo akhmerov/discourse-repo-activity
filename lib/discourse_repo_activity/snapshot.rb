@@ -7,7 +7,7 @@ module DiscourseRepoActivity
       seen =
         user &&
           ChannelRead.find_by(user_id: user.id, chat_channel_id: channel.id)&.last_seen_event_id
-      events = Event.where(chat_channel_id: channel.id).order(id: :desc).limit(40).to_a
+      stream_data = stream(channel)
 
       repos =
         Connection
@@ -38,19 +38,19 @@ module DiscourseRepoActivity
               default_ref: default_ref,
               failing: default_ref&.dig("ci_state") == "failed",
               last_activity_at: latest&.created_at,
-              new_count: user ? c.events.where("id > ?", seen.to_i).count : nil,
+              new_count: user ? c.events.visible.where("id > ?", seen.to_i).count : nil,
             }
           end
       {
         repos: repos.sort_by { |r| [r[:failing] ? 0 : 1, -(r[:last_activity_at]&.to_f || 0)] },
-        **stream(channel),
+        **stream_data,
         message_bus_last_id: message_bus_last_id,
         last_seen_event_id: seen.to_i,
-        latest_event_id: events.first&.id || 0,
+        latest_event_id: stream_data[:stream].first&.dig("id") || 0,
         new_count:
           (
             if user
-              Event.where(chat_channel_id: channel.id).where("id > ?", seen.to_i).count
+              Event.visible.where(chat_channel_id: channel.id).where("id > ?", seen.to_i).count
             else
               nil
             end
@@ -61,7 +61,7 @@ module DiscourseRepoActivity
 
     # A bounded arrival-ordered page; CI updates decorate pushes, never flood the stream.
     def self.stream(channel, before: nil, connection_id: nil)
-      scope = Event.where(chat_channel_id: channel.id).where.not(kind: "ci")
+      scope = Event.visible.where(chat_channel_id: channel.id)
       scope = scope.where(connection_id: connection_id) if connection_id.present?
       scope = scope.where("id < ?", before.to_i) if before.present?
       page = scope.order(id: :desc).limit(31).to_a
@@ -108,7 +108,10 @@ module DiscourseRepoActivity
 
     def self.publish_now(channel)
       return if channel.nil? || channel.trashed?
-      payload = self.for(channel).except(:last_seen_event_id, :new_count, :can_manage)
+      payload = {
+        latest_event_id: Event.visible.where(chat_channel_id: channel.id).maximum(:id).to_i,
+        refresh: true,
+      }
       permissions = Chat::Publisher.permissions(channel)
       if permissions.empty?
         # Native public-channel publication is global; never broadcast repo
