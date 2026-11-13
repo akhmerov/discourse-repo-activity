@@ -32,7 +32,7 @@ export default class RepoActivityBridge extends Component {
       return;
     }
     const navbar = document.querySelector(
-      ".c-drawer-routes.--channel .c-navbar, .c-routes.--channel > .c-navbar-container .c-navbar"
+      ".c-drawer-routes.--channel .c-navbar__actions, .c-routes.--channel > .c-navbar-container .c-navbar__actions"
     );
     const settings = document.querySelector(".c-channel-settings");
     if (this.navbar !== navbar) {

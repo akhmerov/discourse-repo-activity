@@ -2,11 +2,22 @@
   border-radius: 1em;
   padding: 0.3em 0.7em;
   white-space: nowrap;
-  max-width: 45vw;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: var(--font-down-1);
-  margin-inline: 0.5em;
+  margin-inline: var(--space-1);
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 0;
+  line-height: var(--line-height-medium);
+  max-width: min(18em, 30vw);
+
+  .repo-activity__full-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   flex-shrink: 0;
 
   &::before {
@@ -16,7 +27,7 @@
     height: 0.6em;
     border-radius: 50%;
     background: var(--primary-medium);
-    margin-inline-end: 0.4em;
+    flex: 0 0 0.6em;
   }
 
   &--failed {
@@ -214,7 +225,7 @@
 }
 
 @media (width <= 600px) {
-  .repo-activity__full-label {
+.repo-activity__full-label {
     display: none;
   }
 
@@ -223,9 +234,9 @@
   }
 
   .repo-activity__pill {
-    max-width: 4em;
+    max-width: 7em;
     padding: 0.3em 0.55em;
-    margin-inline: 0.25em;
+    margin-inline: var(--space-1);
   }
 
   .fk-d-menu-modal:has(.repo-activity__popover) {

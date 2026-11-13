@@ -1,6 +1,7 @@
 import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
+import { cancel, debounce } from "@ember/runloop";
 import { service } from "@ember/service";
 import DMenu from "discourse/float-kit/components/d-menu";
 import { ajax } from "discourse/lib/ajax";
@@ -33,6 +34,11 @@ export default class RepoActivityHeader extends Component {
 
   @tracked data;
   @tracked highlightSince = 0;
+  @tracked visitCounts = {};
+
+  #refreshJob;
+  #refreshing = false;
+  #refreshAgain = false;
 
   constructor() {
     super(...arguments);
@@ -49,16 +55,19 @@ export default class RepoActivityHeader extends Component {
           );
         }
       })
-      .catch(popupAjaxError);
+      .catch(() => {});
   }
 
   willDestroy() {
     super.willDestroy(...arguments);
     this.messageBus.unsubscribe(this.busChannel, this.receive);
+    cancel(this.#refreshJob);
   }
 
-  get compactCount() {
-    return this.data?.new_count || this.data?.repos?.length || 0;
+  get compactLabel() {
+    return this.data?.new_count
+      ? i18n("repo_activity.new_events", { count: this.data.new_count })
+      : i18n("repo_activity.multiple", { count: this.data?.repos?.length || 0 });
   }
 
   get failing() {
@@ -105,38 +114,20 @@ export default class RepoActivityHeader extends Component {
         new_count:
           update.new_count ??
           (this.data.latest_event_id <= seen ? 0 : this.data.new_count),
+        repos: this.data.repos.map((repo) => ({
+          ...repo,
+          new_count: this.data.latest_event_id <= seen ? 0 : repo.new_count,
+        })),
       };
       return;
     }
-    // Fetch private counts rather than broadcasting an unbounded event-ID list.
-    const request = (this.refreshRequest || 0) + 1;
-    this.refreshRequest = request;
-    try {
-      const data = await ajax(
-        `/repo-activity/channels/${this.args.channel.id}.json`
-      );
-      if (!this.isDestroying && request === this.refreshRequest) {
-        const seen = Math.max(
-          this.data.last_seen_event_id,
-          data.last_seen_event_id
-        );
-        this.data = {
-          ...data,
-          last_seen_event_id: seen,
-          new_count:
-            seen > data.last_seen_event_id
-              ? data.stream.filter((event) => event.id > seen).length
-              : data.new_count,
-        };
-      }
-    } catch (error) {
-      popupAjaxError(error);
-    }
+    this.#refreshJob = debounce(this, this.#refresh, 250);
   }
 
   @action
   async opened() {
     this.highlightSince = this.data.last_seen_event_id;
+    this.visitCounts = Object.fromEntries(this.data.repos.map((repo) => [repo.id, repo.new_count]));
     const id = this.data.latest_event_id;
     try {
       await ajax(`/repo-activity/channels/${this.args.channel.id}/read.json`, {
@@ -165,6 +156,33 @@ export default class RepoActivityHeader extends Component {
     });
   }
 
+  async #refresh() {
+    if (this.#refreshing) {
+      this.#refreshAgain = true;
+      return;
+    }
+    this.#refreshing = true;
+    try {
+      const data = await ajax(`/repo-activity/channels/${this.args.channel.id}.json`);
+      if (!this.isDestroying) {
+        // A concurrent mark-seen must never move this device backwards.
+        if (data.last_seen_event_id < this.data.last_seen_event_id) {
+          this.#refreshAgain = true;
+        } else {
+          this.data = data;
+        }
+      }
+    } catch {
+      // Background polling must not interrupt chat with a dialog.
+    } finally {
+      this.#refreshing = false;
+      if (this.#refreshAgain && !this.isDestroying) {
+        this.#refreshAgain = false;
+        this.#refreshJob = debounce(this, this.#refresh, 250);
+      }
+    }
+  }
+
   <template>
     {{#if @navbar}}
       {{#in-element @navbar insertBefore=null}}
@@ -182,7 +200,7 @@ export default class RepoActivityHeader extends Component {
               <span class="repo-activity__full-label">{{this.label}}</span>
               <span
                 class="repo-activity__compact-label"
-              >{{this.compactCount}}</span>
+              >{{this.compactLabel}}</span>
             </:trigger>
             <:content>
               <div class="repo-activity__content">
@@ -190,6 +208,7 @@ export default class RepoActivityHeader extends Component {
                   @channelId={{@channel.id}}
                   @data={{this.data}}
                   @highlightSince={{this.highlightSince}}
+                  @newCounts={{this.visitCounts}}
                 />
                 {{#if this.data.can_manage}}
                   <DButton

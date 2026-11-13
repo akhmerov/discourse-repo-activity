@@ -102,6 +102,11 @@ RSpec.describe "Repository activity pill" do
   it "merges a read from another device and preserves newer unread events" do
     visit("/chat/c/#{channel.slug}/#{channel.id}")
     expect(page).to have_css(".repo-activity__pill", text: "1 new")
+    DiscourseRepoActivity::ChannelRead.create!(
+      user_id: user.id,
+      chat_channel_id: channel.id,
+      last_seen_event_id: activity.id,
+    )
     MessageBus.publish(
       "/repo-activity/#{channel.id}",
       { last_seen_event_id: activity.id },
@@ -201,7 +206,7 @@ RSpec.describe "Repository activity pill" do
     expect(page).to have_css(".repo-activity__event", text: "Issue 34")
   end
 
-  it "uses a dot and count on narrow headers and contains the mobile sheet", mobile: true do
+  it "labels the count on narrow headers and contains the mobile sheet", mobile: true do
     visit("/chat/c/#{channel.slug}/#{channel.id}")
     expect(page).to have_css(".repo-activity__compact-label", visible: true)
     expect(page).to have_no_css(".repo-activity__full-label", visible: true)
@@ -209,7 +214,7 @@ RSpec.describe "Repository activity pill" do
       page.evaluate_script(
         "document.querySelector('.repo-activity__pill').getBoundingClientRect().width",
       ),
-    ).to be < 80
+    ).to be < 110
     find(".repo-activity__pill").click
     expect(page).to have_css(".fk-d-menu-modal .repo-activity__stream")
     width =
@@ -217,5 +222,117 @@ RSpec.describe "Repository activity pill" do
         "document.querySelector('.repo-activity__popover').getBoundingClientRect().width",
       )
     expect(width).to be <= page.evaluate_script("window.innerWidth")
+  end
+
+  it "places the divider only between new and seen items across visits" do
+    connection.events.create!(chat_channel_id: channel.id, kind: "ci")
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    expect(page).to have_css(".repo-activity__pill", text: "1 new")
+    find(".repo-activity__pill").click
+    expect(page).to have_no_css(".repo-activity__last-visit")
+    expect(page).to have_css(".repo-activity__repo-row", text: "1 new")
+    expect(page).to have_no_css(".repo-activity__pill", text: "1 new")
+    expect(
+      DiscourseRepoActivity::ChannelRead.find_by!(
+        user_id: user.id,
+        chat_channel_id: channel.id,
+      ).last_seen_event_id,
+    ).to eq(activity.id)
+    find(".repo-activity__pill").click
+    find(".repo-activity__pill").click
+    expect(page).to have_no_css(".repo-activity__last-visit")
+    expect(page).to have_no_css(".repo-activity__repo-row", text: "1 new")
+    find(".repo-activity__pill").click
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "issue_opened",
+      summary: {
+        title: "Fresh issue",
+      },
+    )
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
+    expect(page).to have_css(".repo-activity__pill", text: "1 new")
+    find(".repo-activity__pill").click
+    expect(page).to have_css(".repo-activity__event--new", text: "Fresh issue")
+    expect(page).to have_css(".repo-activity__last-visit", count: 1)
+    expect(page).to have_css(
+      ".repo-activity__event--new + .repo-activity__last-visit + .repo-activity__event",
+      text: "Push to main",
+    )
+  end
+
+  it "keeps every loaded event after a live burst displaces the entire first page" do
+    65.times do |index|
+      connection.events.create!(
+        chat_channel_id: channel.id,
+        kind: "issue_opened",
+        summary: {
+          title: "Historical #{index}",
+        },
+      )
+    end
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    find(".repo-activity__pill").click
+    click_button("Load earlier")
+    expect(page).to have_css(".repo-activity__event", text: "Historical 5")
+    35.times do |index|
+      connection.events.create!(
+        chat_channel_id: channel.id,
+        kind: "issue_opened",
+        summary: {
+          title: "Incoming #{index}",
+        },
+      )
+    end
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
+    expect(page).to have_css(".repo-activity__event", text: "Incoming 34")
+    expect(page).to have_css(".repo-activity__event", text: /Incoming 0 0m$/)
+    expect(page).to have_css(".repo-activity__event", text: "Historical 35")
+    expect(page).to have_css(".repo-activity__event", text: "Historical 5")
+    expect(page).to have_css(".repo-activity__event", count: 95)
+    click_button("Load earlier")
+    expect(page).to have_css(".repo-activity__event", text: "Push to main")
+    expect(page).to have_css(".repo-activity__event", count: 101)
+  end
+
+  it "coalesces live refresh bursts and leaves background failures silent" do
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    expect(page).to have_css(".repo-activity__pill")
+    page.execute_script(<<~JS)
+      window.repoRequests = 0;
+      const originalOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        if (String(url).includes('/repo-activity/channels/')) {
+          window.repoRequests++;
+        }
+        return originalOpen.call(this, method, url, ...rest);
+      };
+    JS
+    8.times { Jobs::RepoActivityPublish.new.execute(channel_id: channel.id) }
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "issue_opened",
+      summary: {
+        title: "One refresh",
+      },
+    )
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
+    expect(page).to have_css(".repo-activity__pill", text: "2 new")
+    expect(page.evaluate_script("window.repoRequests")).to be <= 2
+    # Force the next background GET to receive a real missing-route response.
+    page.execute_script(<<~JS)
+      const originalOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        if (String(url).includes('/repo-activity/channels/')) {
+          this.addEventListener('loadend', () => { window.repoBackgroundFailed = true; });
+          url = '/repo-activity/not-found.json';
+        }
+        return originalOpen.call(this, method, url, ...rest);
+      };
+    JS
+    Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
+    try_until_success { expect(page.evaluate_script("window.repoBackgroundFailed")).to eq(true) }
+    expect(page).to have_no_css(".dialog-container")
+    expect(page).to have_css(".repo-activity__pill", text: "2 new")
   end
 end

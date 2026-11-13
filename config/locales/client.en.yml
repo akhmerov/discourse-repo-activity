@@ -21,7 +21,9 @@ en:
       enabled: "Enabled"
       last_delivery: "Last delivery:"
       single: "%{name} · %{age}"
-      multiple: "%{count} repos"
+      multiple:
+        one: "%{count} repo"
+        other: "%{count} repos"
       failing: "%{label} · %{count} failing"
       new_count: "%{label} · %{count} new"
       no_activity: "No activity yet"

@@ -23,14 +23,23 @@ export default class RepoActivityPopover extends Component {
   @tracked selected = null;
   @tracked filtered = null;
   @tracked earlier = [];
+
   @tracked cursor;
+
   @tracked expanded = new Set();
   @tracked loading = false;
   request = 0;
+  @tracked _retained = [];
+
+  constructor() {
+    super(...arguments);
+    this._retained = this.args.data.stream || [];
+  }
 
   get repos() {
     return (this.args.data.repos || []).map((repo) => ({
       ...repo,
+      new_count: (this.args.newCounts?.[repo.id] || 0) + (repo.new_count || 0),
       selected: repo.id === this.selected,
       idle:
         !repo.last_activity_at ||
@@ -59,10 +68,12 @@ export default class RepoActivityPopover extends Component {
   }
 
   get groups() {
-    const events = [
-      ...(this.filtered || this.args.data.stream || []),
+    const events = this.#merge([
       ...this.earlier,
-    ];
+      ...this._retained,
+      ...(this.filtered || this.args.data.stream || []),
+    ]).filter((event) => !this.selected || event.connection_id === this.selected);
+    const hasNew = events.some((event) => event.id > this.args.highlightSince);
     const groups = [];
     let divided = false;
     for (const event of events) {
@@ -70,7 +81,7 @@ export default class RepoActivityPopover extends Component {
         continue;
       }
       const isNew = event.id > this.args.highlightSince;
-      if (!isNew && !divided) {
+      if (hasNew && !isNew && !divided) {
         groups.push({ id: "seen", divider: true });
         divided = true;
       }
@@ -109,9 +120,6 @@ export default class RepoActivityPopover extends Component {
         total: event.summary.commit_count || 0,
       });
     }
-    if (!divided && groups.length) {
-      groups.push({ id: "seen", divider: true });
-    }
     return groups.map((group) => ({
       ...group,
       className: `repo-activity__event${group.isNew ? " repo-activity__event--new" : ""}`,
@@ -142,24 +150,42 @@ export default class RepoActivityPopover extends Component {
 
   @action
   async refreshFilter() {
-    if (!this.selected) {
-      return;
-    }
     const request = ++this.request;
     this.loading = true;
     try {
-      const result = await ajax(
-        `/repo-activity/channels/${this.args.channelId}.json`,
-        { data: { connection_id: this.selected } }
-      );
+      const result = this.selected
+        ? await ajax(`/repo-activity/channels/${this.args.channelId}.json`, {
+            data: { connection_id: this.selected },
+          })
+        : this.args.data;
       if (request === this.request) {
-        this.filtered = result.stream;
-        if (!this.earlier.length) {
-          this.cursor = result.earlier_before;
+        const old = this.selected ? this.filtered : this._retained;
+        const top = old?.[0]?.id;
+        let batch = result;
+        let incoming = result.stream;
+        // Walk bounded pages back to our retained window. Keeping only the old
+        // "earlier" page would lose items displaced by a live burst.
+        while (top && batch.earlier_before && batch.stream.at(-1)?.id > top) {
+          batch = await ajax(`/repo-activity/channels/${this.args.channelId}.json`, {
+            data: { before: batch.earlier_before, connection_id: this.selected },
+          });
+          if (request !== this.request || this.isDestroying) {
+            return;
+          }
+          incoming = [...incoming, ...batch.stream];
+        }
+        const merged = this.#merge([...(old || []), ...incoming]);
+        if (this.selected) {
+          this.filtered = merged;
+        } else {
+          this._retained = merged;
+        }
+        if (!this.earlier.length && this.cursor === undefined) {
+          this.cursor = batch.earlier_before;
         }
       }
-    } catch (error) {
-      popupAjaxError(error);
+    } catch {
+      // A live refresh is best effort; user-initiated pagination reports errors.
     } finally {
       if (request === this.request) {
         this.loading = false;
@@ -190,6 +216,11 @@ export default class RepoActivityPopover extends Component {
     } finally {
       this.loading = false;
     }
+  }
+
+  #merge(events) {
+    return [...new Map(events.map((event) => [event.id, event])).values()]
+      .sort((a, b) => b.id - a.id);
   }
 
   <template>
