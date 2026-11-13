@@ -139,7 +139,7 @@ RSpec.describe "Repository management" do
   end
 
   it "authorizes status and explicit secret access and never shares status with viewers" do
-    DiscourseRepoActivity::DeliveryStatus.record(connection, "wrong_secret")
+    DiscourseRepoActivity::DeliveryStatus.reject_unverified(connection, "wrong_secret")
     sign_in(member)
     get "/repo-activity/channels/#{channel.id}/connections/#{connection.id}/secret.json"
     expect(response.status).to eq(403)
@@ -159,15 +159,16 @@ RSpec.describe "Repository management" do
     DiscourseRepoActivity::DeliveryStatus.watch(channel, member)
     messages =
       MessageBus.track_publish("/repo-activity/management/#{channel.id}") do
-        DiscourseRepoActivity::DeliveryStatus.record(connection, "wrong_secret")
+        DiscourseRepoActivity::DeliveryStatus.reject_unverified(connection, "wrong_secret")
       end
     expect(messages.sole.user_ids).to eq([admin.id])
     expect(messages.sole.data).to eq(refresh: true)
+    freeze_time 61.seconds.from_now
     admin.update!(suspended_till: 1.year.from_now)
     expect(DiscourseRepoActivity.can_manage?(channel, User.find(admin.id))).to eq(false)
     messages =
       MessageBus.track_publish("/repo-activity/management/#{channel.id}") do
-        DiscourseRepoActivity::DeliveryStatus.record(connection, "missing_signature")
+        DiscourseRepoActivity::DeliveryStatus.reject_unverified(connection, "missing_signature")
       end
     expect(messages).to be_empty
   end

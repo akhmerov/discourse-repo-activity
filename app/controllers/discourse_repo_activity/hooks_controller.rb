@@ -9,12 +9,22 @@ module DiscourseRepoActivity
                        :check_xhr
     MAX_BODY = 1.megabyte
 
+    # Instrumentation emits start_processing before callbacks and append_info_to_payload.
+    # Suppress the complete hook parameter map before entering that instrumentation.
+    def process_action(*)
+      # Rails' JSON parser also logs raw malformed bodies. Hooks decode only
+      # after signature verification, so bypass automatic body parsing entirely.
+      request.request_parameters = {}
+      request.define_singleton_method(:filtered_parameters) { {} }
+      super
+    end
+
     def create
       connection = Connection.find_by(public_id: request.path_parameters[:public_id])
       raise Discourse::NotFound unless connection
       body = request.body.read(MAX_BODY + 1)
       if body.bytesize > MAX_BODY
-        DeliveryStatus.record(connection, "invalid_payload")
+        DeliveryStatus.reject_unverified(connection, "invalid_payload")
         return head :payload_too_large
       end
       unless Signature.valid?(connection, body, request.headers)
@@ -25,17 +35,14 @@ module DiscourseRepoActivity
           1.minute,
         ).performed!
         header = connection.forge == "github" ? "X-Hub-Signature-256" : "X-Gitlab-Token"
-        DeliveryStatus.record(
+        DeliveryStatus.reject_unverified(
           connection,
           request.headers[header].blank? ? "missing_signature" : "wrong_secret",
         )
         return head :unauthorized
       end
       RateLimiter.new(nil, "repo-activity:#{connection.id}", 120, 1.minute).performed!
-      unless connection.active_channel?
-        DeliveryStatus.record(connection, "archived")
-        return head :not_found
-      end
+      return head :not_found unless connection.active_channel?
       delivery =
         request.headers[
           connection.forge == "github" ? "X-GitHub-Delivery" : "X-Gitlab-Event-UUID"
@@ -51,12 +58,11 @@ module DiscourseRepoActivity
           connection.chat_channel.with_lock do
             unless connection.active_channel?
               Discourse.redis.del(key)
-              DeliveryStatus.record(connection, "archived")
               return head :not_found
             end
             unless Signature.valid?(connection, body, request.headers)
               Discourse.redis.del(key)
-              DeliveryStatus.record(connection, "wrong_secret")
+              DeliveryStatus.reject_unverified(connection, "wrong_secret")
               return head :unauthorized
             end
             # GitHub signs the form envelope, not the decoded JSON value.
@@ -87,37 +93,8 @@ module DiscourseRepoActivity
               status = "receiving"
             else
               parsed = Parser.new(connection, payload).parse(event)
-              # GitLab's test push is indistinguishable from a real push. A
-              # pre-connection commit can verify setup without replaying old work.
-              stale_test =
-                connection.forge == "gitlab" && event == "Push Hook" && connection.events.empty? &&
-                  Array(payload["commits"]).any? &&
-                  Array(payload["commits"]).all? do |commit|
-                    time =
-                      begin
-                        Time.iso8601(commit["timestamp"].to_s)
-                      rescue StandardError
-                        nil
-                      end
-                    time && time < connection.created_at.change(usec: 0)
-                  end
-              Processor.new(connection).process(parsed) if parsed && !stale_test
-              supported =
-                (
-                  if connection.forge == "github"
-                    %w[push workflow_run pull_request issues release]
-                  else
-                    [
-                      "Push Hook",
-                      "Tag Push Hook",
-                      "Pipeline Hook",
-                      "Merge Request Hook",
-                      "Issue Hook",
-                      "Release Hook",
-                    ]
-                  end
-                )
-              status = supported.include?(event) ? "receiving" : "ignored_event"
+              Processor.new(connection).process(parsed) if parsed
+              status = "receiving"
             end
             connection.save! if connection.changed?
             type =

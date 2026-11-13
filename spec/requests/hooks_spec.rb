@@ -99,6 +99,15 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     expect(response.status).to eq(200)
     post "/repo-activity/hooks/#{connection.public_id}", params: body, headers: headers
     expect(connection.events.count).to eq(1)
+    ["Job Hook", "Note Hook", "Wiki Page Hook"].each do |event|
+      headers["X-Gitlab-Event"] = event
+      headers["X-Gitlab-Event-UUID"] = SecureRandom.uuid
+      post "/repo-activity/hooks/#{connection.public_id}", params: body, headers: headers
+      expect(response.status).to eq(200)
+    end
+    expect(connection.management_json["delivery_status"]).to eq("receiving")
+    expect(DiscourseRepoActivity::DeliveryStatus.count(connection)).to eq(0)
+    expect(connection.events.count).to eq(1)
   end
 
   it "rejects archived, closed, deleted and disabled channels" do
@@ -116,7 +125,10 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     deliver
     expect(response.status).to eq(404)
     expect(connection.reload.last_delivery_at).to be_nil
-    expect(connection.last_delivery_error).to eq("archived")
+    expect(connection.last_delivery_error).to be_nil
+    expect(connection.management_json["delivery_status"]).to eq("paused")
+    connection.update!(enabled: true)
+    expect(connection.management_json["delivery_status"]).not_to eq("paused")
     expect(connection.events.count).to eq(0)
   end
 
@@ -156,30 +168,43 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     expect(connection.events.count).to eq(1)
   end
 
-  it "records state changes immediately and retains the last failure after success" do
+  it "keeps unauthenticated failures in Redis and protects verified status" do
     freeze_time
-    deliver(signature: :invalid)
-    expect(connection.reload.last_delivery_error).to eq("wrong_secret")
-    time = connection.last_delivery_error_at
+    3.times { deliver(signature: :invalid) }
+    expect(connection.reload.delivery_status).to eq("waiting")
+    expect(connection.status_written_at).to be_nil
+    expect(connection.last_delivery_error).to be_nil
+    expect(connection.management_json["delivery_status"]).to eq("wrong_secret")
+    expect(DiscourseRepoActivity::DeliveryStatus.count(connection)).to eq(3)
     deliver
+    written = connection.reload.status_written_at
+    4.times do
+      deliver(signature: :missing)
+      deliver(signature: :invalid)
+    end
     expect(connection.reload.delivery_status).to eq("receiving")
-    expect(connection.last_delivery_error_at).to eq_time(time)
-    deliver(signature: :missing)
-    expect(connection.reload.delivery_status).to eq("missing_signature")
+    expect(connection.status_written_at).to eq_time(written)
+    expect(connection.management_json["delivery_status"]).to eq("receiving")
+    expect(DiscourseRepoActivity::DeliveryStatus.count(connection)).to eq(0)
   end
 
-  it "bounds database status writes while keeping the rejection counter live" do
+  it "throttles writes and publications even when authenticated status changes" do
     freeze_time
-    deliver(signature: :invalid)
+    allow(DiscourseRepoActivity::DeliveryStatus).to receive(:publish)
+    deliver(event: "workflow_job")
     first = connection.reload.status_written_at
-    3.times { deliver(signature: :invalid) }
-    expect(connection.reload.status_written_at).to eq_time(first)
-    expect(connection.rejected_deliveries).to eq(1)
-    expect(DiscourseRepoActivity::DeliveryStatus.count(connection)).to eq(4)
+    deliver({ "hook" => "malformed" }, event: "ping")
+    expect(response.status).to eq(400)
+    deliver(event: "check_run")
+    expect(connection.reload.delivery_status).to eq("receiving")
+    expect(connection.status_written_at).to eq_time(first)
+    expect(connection.rejected_deliveries).to eq(0)
+    expect(connection.management_json["delivery_status"]).to eq("receiving")
+    expect(DiscourseRepoActivity::DeliveryStatus).to have_received(:publish).with(channel).once
     freeze_time 61.seconds.from_now
-    deliver(signature: :invalid)
-    expect(connection.reload.rejected_deliveries).to eq(5)
-    expect(connection.status_written_at).to be > first
+    allow(DiscourseRepoActivity::DeliveryStatus).to receive(:publish)
+    deliver(event: "status")
+    expect(connection.reload.status_written_at).to be > first
   end
 
   it "verifies the raw GitHub form envelope before decoding its payload" do
@@ -207,14 +232,16 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     expect(response.status).to eq(400)
     expect(connection.reload.delivery_status).to eq("invalid_payload")
     deliver({ "hook" => { "events" => %w[push issues attacker-provided-text] } }, event: "ping")
-    expect(connection.reload.delivery_status).to eq("receiving")
-    expect(connection.missing_hook_events).to eq(%w[workflow_run pull_request release])
+    expect(connection.management_json["delivery_status"]).to eq("receiving")
+    expect(connection.management_json["missing_hook_events"]).to eq(
+      %w[workflow_run pull_request release],
+    )
     expect(connection.events).to be_empty
     deliver({ "hook" => { "events" => ["*"] } }, event: "ping")
-    expect(connection.reload.missing_hook_events).to eq([])
+    expect(connection.management_json["missing_hook_events"]).to eq([])
   end
 
-  it "acknowledges an old GitLab test push without replaying historical commits" do
+  it "accepts a first GitLab push of older work and updates the ref" do
     connection.update!(
       forge: "gitlab",
       host: "gitlab.tudelft.nl",
@@ -233,21 +260,22 @@ RSpec.describe DiscourseRepoActivity::HooksController do
          headers: headers
     expect(response.status).to eq(200)
     expect(connection.reload.delivery_status).to eq("receiving")
-    expect(connection.events).to be_empty
-    expect(connection.refs).to be_empty
+    expect(connection.events.count).to eq(1)
+    expect(connection.refs.count).to eq(1)
     payload["commits"].each { |commit| commit["timestamp"] = Time.current.iso8601 }
     headers["X-Gitlab-Event-UUID"] = SecureRandom.uuid
     post "/repo-activity/hooks/#{connection.public_id}",
          params: JSON.generate(payload),
          headers: headers
     expect(response.status).to eq(200)
-    expect(connection.events.count).to eq(1)
+    expect(connection.events.count).to eq(2)
+    expect(Chat::Message.where(chat_channel: channel).count).to eq(0)
   end
 
   it "stores reason codes instead of malformed payload content" do
     body = "not-json-private-content"
     headers = {
-      "CONTENT_TYPE" => "text/plain",
+      "CONTENT_TYPE" => "application/json",
       "X-GitHub-Event" => "push",
       "X-GitHub-Delivery" => SecureRandom.uuid,
       "X-Hub-Signature-256" =>
@@ -259,7 +287,7 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     expect(connection.last_delivery_error_at).to be_present
     expect(connection.attributes.to_json.include?(body)).to eq(false)
     deliver(event: "unknown-event")
-    expect(connection.reload.delivery_status).to eq("ignored_event")
+    expect(connection.management_json["delivery_status"]).to eq("receiving")
   end
 
   it "coalesces successful delivery timestamp writes within a minute" do
@@ -278,12 +306,13 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     deliver
     deliver(repo_payload("github_issues"), event: "issues")
     deliver(repo_payload("github_pull_request"), event: "pull_request")
-    expect(connection.reload.received_event_types.keys).to contain_exactly(
+    expect(connection.management_json["recent_event_types"]).to contain_exactly(
       "push",
       "issue",
       "pull_request",
     )
     expect(connection.events.where(kind: %w[issue_opened pr_opened], loud: true).count).to eq(2)
+    DiscourseRepoActivity::DeliveryStatus.clear(connection)
     connection.update_columns(
       received_event_types: {
         "push" => 8.days.ago.iso8601,
@@ -291,5 +320,80 @@ RSpec.describe DiscourseRepoActivity::HooksController do
       },
     )
     expect(connection.management_json[:recent_event_types]).to eq(["pipeline"])
+  end
+
+  it "clears ping warnings on actual events without waiting for another ping" do
+    deliver({ "hook" => { "events" => ["push"] } }, event: "ping")
+    deliver(repo_payload("github_workflow_run"), event: "workflow_run")
+    deliver(repo_payload("github_issues"), event: "issues")
+    expect(connection.management_json["missing_hook_events"]).to eq(%w[pull_request release])
+    expect(connection.reload.missing_hook_events).to include("workflow_run")
+  end
+
+  it "persists coalesced warnings without requiring another delivery" do
+    freeze_time
+    deliver({ "hook" => { "events" => ["push"] } }, event: "ping")
+    deliver(repo_payload("github_workflow_run"), event: "workflow_run")
+    delivery_at = connection.management_json["last_delivery_at"]
+    freeze_time 61.seconds.from_now
+    Jobs::RepoActivityDeliveryStatus.new.execute(connection_id: connection.id)
+    expect(connection.reload.missing_hook_events).to eq(%w[pull_request issues release])
+    expect(connection.last_delivery_at).to eq_time(Time.iso8601(delivery_at))
+  end
+
+  it "accepts extra forge events without a rejection or database status write" do
+    freeze_time
+    deliver
+    written = connection.reload.status_written_at
+    %w[workflow_job check_run check_suite status].each { |event| deliver(event: event) }
+    expect(connection.reload.status_written_at).to eq_time(written)
+    expect(connection.management_json["delivery_status"]).to eq("receiving")
+    expect(DiscourseRepoActivity::DeliveryStatus.count(connection)).to eq(0)
+  end
+end
+
+RSpec.describe "Webhook parameter privacy", type: :request do
+  it "suppresses JSON and form parameters before the standard LogSubscriber logs them" do
+    SiteSetting.repo_activity_enabled = true
+    output = StringIO.new
+    subscriber = ActionController::LogSubscriber.new
+    allow(subscriber).to receive(:logger).and_return(ActiveSupport::Logger.new(output))
+    listener =
+      ActiveSupport::Notifications.subscribe("start_processing.action_controller") do |*args|
+        subscriber.start_processing(ActiveSupport::Notifications::Event.new(*args))
+      end
+    begin
+      %w[application/json application/x-www-form-urlencoded].each do |content_type|
+        body =
+          (
+            if content_type == "application/json"
+              { arbitrary_private_key: "private-commit-email-marker" }.to_json
+            else
+              URI.encode_www_form(payload: "private-commit-email-marker")
+            end
+          )
+        post "/repo-activity/hooks/nonexistent",
+             params: body,
+             headers: {
+               "CONTENT_TYPE" => content_type,
+             }
+      end
+      post "/repo-activity/hooks/nonexistent",
+           params: "malformed-private-commit-email-marker",
+           headers: {
+             "CONTENT_TYPE" => "application/json",
+           }
+      expect(response.status).to eq(404)
+      expect(output.string).to include(
+        "Processing by DiscourseRepoActivity::HooksController#create",
+      )
+      expect(output.string).not_to include(
+        "Parameters:",
+        "private-commit-email-marker",
+        "arbitrary_private_key",
+      )
+    ensure
+      ActiveSupport::Notifications.unsubscribe(listener)
+    end
   end
 end

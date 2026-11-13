@@ -3,6 +3,7 @@
 module DiscourseRepoActivity
   class Connection < ActiveRecord::Base
     self.table_name = "repo_activity_connections"
+    self.ignored_columns = %w[enabled_events]
     belongs_to :chat_channel, class_name: "Chat::Channel"
     belongs_to :created_by, class_name: "User"
     has_many :refs, class_name: "DiscourseRepoActivity::Ref", dependent: :delete_all
@@ -66,6 +67,7 @@ module DiscourseRepoActivity
         rejected_deliveries: DeliveryStatus.count(self),
         recent_event_types:
           received_event_types.select { |_kind, time| Time.iso8601(time) >= 7.days.ago }.keys,
+        **DeliveryStatus.management_state(self),
       )
     end
 
@@ -76,7 +78,16 @@ module DiscourseRepoActivity
     private
 
     def discard_pending_if_disabled
-      discard_pending! if saved_change_to_enabled? && !enabled?
+      if saved_change_to_enabled?
+        discard_pending! unless enabled?
+        DeliveryStatus.clear(self)
+        update_columns(
+          delivery_status: last_delivery_at ? "receiving" : "waiting",
+          last_delivery_error: nil,
+          last_delivery_error_at: nil,
+          rejected_deliveries: 0,
+        )
+      end
     end
 
     def normalize

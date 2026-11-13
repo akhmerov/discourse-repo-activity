@@ -38,7 +38,11 @@ module DiscourseRepoActivity
         connection.delivery_status = "waiting"
         connection.missing_hook_events = []
         connection.rejected_deliveries = 0
-        Discourse.redis.del("repo-activity:rejected:#{connection.id}")
+        connection.last_delivery_at = nil
+        connection.last_delivery_error = nil
+        connection.last_delivery_error_at = nil
+        connection.status_written_at = nil
+        DeliveryStatus.clear(connection)
         save_and_render(connection)
       end
       Snapshot.publish(@channel) if connection.errors.empty?
