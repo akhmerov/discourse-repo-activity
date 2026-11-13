@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 DiscourseRepoActivity::Engine.routes.draw do
+  get "/overview" => "overview#index"
   post "/hooks/:public_id" => "hooks#create"
   get "/channels/:channel_id" => "channels#show"
   put "/channels/:channel_id/read" => "channels#read"

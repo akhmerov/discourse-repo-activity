@@ -2,12 +2,13 @@ import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
 import { fn } from "@ember/helper";
 import { action } from "@ember/object";
-import { cancel, debounce } from "@ember/runloop";
+import { cancel, debounce, scheduleOnce } from "@ember/runloop";
 import { service } from "@ember/service";
 import DMenu from "discourse/float-kit/components/d-menu";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import DButton from "discourse/ui-kit/d-button";
+import dIcon from "discourse/ui-kit/helpers/d-icon";
 import { i18n } from "discourse-i18n";
 import RepoActivityManager from "./modal/repo-activity-manager.gjs";
 import RepoActivityPopover from "./repo-activity-popover.gjs";
@@ -32,6 +33,7 @@ export function age(value) {
 export default class RepoActivityHeader extends Component {
   @service messageBus;
   @service modal;
+  @service repoActivityNavigation;
 
   @tracked data;
   @tracked highlightSince = 0;
@@ -65,12 +67,17 @@ export default class RepoActivityHeader extends Component {
     cancel(this.#refreshJob);
   }
 
-  get compactLabel() {
-    return this.data?.new_count
-      ? i18n("repo_activity.new_events", { count: this.data.new_count })
-      : i18n("repo_activity.multiple", {
-          count: this.data?.repos?.length || 0,
-        });
+  get accessibleLabel() {
+    const repos = this.data?.repos || [];
+    return i18n("repo_activity.header_accessible", {
+      passing: repos.filter((repo) => repo.default_ref?.ci_state === "success")
+        .length,
+      failing: repos.filter((repo) => repo.failing).length,
+      pending: repos.filter((repo) =>
+        ["pending", "running"].includes(repo.default_ref?.ci_state)
+      ).length,
+      count: this.data?.new_count || 0,
+    });
   }
 
   get failing() {
@@ -80,7 +87,11 @@ export default class RepoActivityHeader extends Component {
   get statusClass() {
     const state = this.failing
       ? "failed"
-      : this.data?.repos?.[0]?.default_ref?.ci_state || "none";
+      : this.data?.repos?.some((repo) =>
+            ["pending", "running"].includes(repo.default_ref?.ci_state)
+          )
+        ? "running"
+        : this.data?.repos?.[0]?.default_ref?.ci_state || "none";
     return `repo-activity__pill repo-activity__pill--${state}`;
   }
 
@@ -102,6 +113,14 @@ export default class RepoActivityHeader extends Component {
     return this.data?.new_count
       ? i18n("repo_activity.new_count", { label, count: this.data.new_count })
       : label;
+  }
+
+  @action
+  registerMenu(menu) {
+    if (this.repoActivityNavigation.channelId === this.args.channel.id) {
+      this.repoActivityNavigation.channelId = null;
+      scheduleOnce("afterRender", menu, menu.show);
+    }
   }
 
   @action
@@ -198,19 +217,26 @@ export default class RepoActivityHeader extends Component {
       {{#in-element @navbar insertBefore=null}}
         {{#if this.data.repos.length}}
           <DMenu
-            @ariaLabel={{this.label}}
+            @ariaLabel={{this.accessibleLabel}}
             @identifier="repo-activity"
             @maxWidth={{420}}
             @modalForMobile={{true}}
+            @onRegisterApi={{this.registerMenu}}
             @onShow={{this.opened}}
             @placement="bottom-end"
             @triggerClass={{this.statusClass}}
           >
             <:trigger>
               <span class="repo-activity__full-label">{{this.label}}</span>
-              <span
-                class="repo-activity__compact-label"
-              >{{this.compactLabel}}</span>
+              <span aria-hidden="true" class="repo-activity__phone-icon">{{dIcon
+                  "code-branch"
+                }}</span>
+              {{#if this.data.new_count}}<span
+                  aria-hidden="true"
+                  class="repo-activity__badge c-unread-indicator chat-thread-header-unread-indicator"
+                ><span
+                    class="c-unread-indicator__number"
+                  >{{this.data.new_count}}</span></span>{{/if}}
             </:trigger>
             <:content as |menu|>
               <div class="repo-activity__content">

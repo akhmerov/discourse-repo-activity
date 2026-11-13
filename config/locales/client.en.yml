@@ -2,6 +2,11 @@ en:
   js:
     repo_activity:
       activity: "Activity"
+      header_accessible: "Repositories: %{passing} passing, %{failing} failing, %{pending} pending, %{count} new"
+      overview_failure: "%{branch} failing · %{age}"
+      overview_new:
+        one: "%{count} new commit"
+        other: "%{count} new commits"
       all_repos: "All repos"
       idle: "idle"
       since_looked: "Since you looked"

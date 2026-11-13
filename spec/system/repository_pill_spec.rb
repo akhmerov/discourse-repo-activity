@@ -33,9 +33,21 @@ RSpec.describe "Repository activity pill" do
     sign_in(user)
   end
 
+  it "uses a compact icon and unread badge on a narrow desktop" do
+    page.current_window.resize_to(390, 844)
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    expect(page).to have_css(".repo-activity__phone-icon", visible: true)
+    expect(page).to have_css(".repo-activity__badge", text: "1")
+    expect(page).to have_css('.repo-activity__pill[aria-label*="1 new"]')
+    find(".repo-activity__pill").click
+    expect(page).to have_css(".repo-activity__popover")
+    expect(page).to have_no_css(".repo-activity__badge")
+  end
+
   it "opens the popover and resets the new count persistently" do
     visit("/chat/c/#{channel.slug}/#{channel.id}")
     expect(page).to have_css(".repo-activity__pill", text: "sim-tools")
+    expect(page).to have_no_css(".repo-activity__badge", visible: true)
     expect(page).to have_css(".repo-activity__pill", text: "1 new")
     find(".repo-activity__pill").click
     expect(page).to have_css(".repo-activity__event--new", text: "Push to main")
@@ -208,7 +220,7 @@ RSpec.describe "Repository activity pill" do
 
   it "labels the count on narrow headers and contains the mobile sheet", mobile: true do
     visit("/chat/c/#{channel.slug}/#{channel.id}")
-    expect(page).to have_css(".repo-activity__compact-label", visible: true)
+    expect(page).to have_css(".repo-activity__phone-icon", visible: true)
     expect(page).to have_no_css(".repo-activity__full-label", visible: true)
     expect(
       page.evaluate_script(
