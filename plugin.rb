@@ -4,6 +4,7 @@
 # about: Receive GitHub and GitLab activity in chat channels.
 # version: 0.1
 # authors: Anton Akhmerov
+# url: https://github.com/akhmerov/discourse-repo-activity
 # license: MIT
 
 enabled_site_setting :repo_activity_enabled
