@@ -30,33 +30,47 @@ MessageBus messages.
 Pushes and CI updates on every branch remain quiet. The channel header pill
 shows repository activity, default-branch failures and events since the viewer
 last opened the popover. Opening acknowledges only the displayed event cursor;
-newer concurrent events remain new. Desktop uses a popover and mobile a native
-menu dialog. One snapshot request initializes the channel; permission-filtered
-MessageBus updates then refresh it, using a snapshot cursor to cover races
-before the first poll. Updates are debounced per channel in a background job and
-use native Chat publisher permissions. Unread counts are computed in the client;
-management permissions come only from the authenticated snapshot.
+newer concurrent events remain new. Desktop uses a 400px popover; mobile uses a
+bottom sheet and a compact dot/count pill so the channel title remains readable.
 
-The popover lists failures first, followed by recent activity, including branch
-state, SHA, pusher, failed workflows/jobs, PR/MR pipelines, pushes today, and
-recent events. Up to 50 recent events are shown for each repository. A two-day
-Redis set of push event IDs keeps daily counts valid after event pruning.
+The top of the popover contains one filterable row per active repository,
+failing first, then most recently active. Repositories idle for fourteen days
+fold into one line. The shared Activity stream is newest first, in event-arrival
+order, across all branches. Consecutive pushes by the same actor to the same
+repository and branch share a header with the latest push's CI state. Three
+commits appear initially; expand the rest inline. Each push retains up to twenty
+validated commit SHAs, first-line messages, author names/logins and forge URLs,
+plus the provider's total count. Commits omitted by the provider remain a count.
+Quiet branch CI updates decorate push headers rather than adding timeline rows.
+A last-visit divider separates events newer than the opening cursor from seen
+activity. Load earlier fetches another thirty stream items, optionally filtered
+by repository. Snapshots and permission-filtered MessageBus windows are bounded;
+private unread counts and management permission come from authenticated requests.
 
 Default-branch CI failures, tags/releases, opened/merged PRs and MRs, and opened
-issues are announced by a dedicated bot, coalesced per connection for two
-minutes. A release supersedes a matching tag in that window. If a busy window exceeds Chat’s message length limit, the
-announcement preserves failure status and as many titles/links as fit, with an
-overflow count pointing readers to the popover. Further failures
-edit the same alert. Recovery edits it to `fixed in <sha>` and adds a short
-thread reply. A quick failure/recovery pair is coalesced into its recovered
-state with a thread reply. If the prior failure message was deleted, a lone
-recovery is discarded and the incident is cleared. Failure and recovery toggles
-are independent of quiet CI recording; ref state is always tracked. The initial failure mentions a pusher only when a
-push webhook supplied a case-insensitive matching Discourse username, that
-user can see the channel and has channel membership. Titles are rendered as inline code so
-forge content cannot inject links, oneboxes, hashtags or mentions. Bodies, diffs and release notes never
-enter chat. Only pushes retain the first line of the final commit message in
-the quiet summary, as well as SHA and commit count.
+issues are announced by a dedicated bot, coalesced per connection for two minutes.
+A release supersedes a matching tag. Each event gets a short readable line under
+a bold repository name; bursts show three lines per kind and summarize the rest.
+Length limits preserve alerts and summarize overflow. Disposable CI alerts are
+separate messages from durable PR, issue and release announcements.
+
+Recovery **trashes the bot's failure alert** through native Chat services, updating
+last-message/read tracking and publishing deletion to clients. No recovery reply
+is posted when nobody replied. If a human replied, recovery keeps the alert,
+edits it to `fixed in <sha>` and posts a threaded reply. Incident replies acquire
+the same connection/channel locks before native thread autosave; a late in-flight
+reply can restore an alert deleted during recovery. The incident remains in the
+Activity stream. A failure/recovery pair completed before announcement stays quiet.
+Recovery replies can be disabled; cleanup and fixing an existing alert still run.
+Failure alerts remain independent of quiet CI recording.
+
+The initial alert mentions a pusher only when a push webhook supplied a matching
+Discourse username with visibility and channel membership. Forge-controlled
+text uses numeric entities to prevent Markdown and linkification. Visible spaces
+neutralize mention, hashtag and emoji triggers (for example `@ all`, `# tag`,
+`: smile:`); Unicode emoji become readable bracketed names. Ordinary names and
+titles remain plain text, with validated forge links on titles. No invisible
+characters or code spans are inserted. Bodies, diffs and release notes are discarded.
 
 GitHub CI combines workflow runs **seen for a commit**: any failed run is red,
 successful runs (with any neutral runs) are green, all neutral runs are shown
@@ -94,8 +108,8 @@ The bot is seeded with its negative user ID in PluginStore. It gains chat
 membership only as needed. Announcement services use a guardian scoped to their
 connected channel, without staff privileges or backing category/group grants.
 Ordinary viewers' visibility checks continue to govern all reads and broadcasts.
-A daily job retains the newest 50 events per connection and removes non-default
-branch refs idle for 14 days. Closed PR/MR refs are deleted immediately.
+A daily job retains fourteen days of events, capped at 500 stored commits and
+1,000 events per connection, and removes non-default branch refs idle for fourteen days. Closed PR/MR refs are deleted immediately.
 
 ## Extension point
 
