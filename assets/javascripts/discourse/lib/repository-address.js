@@ -8,10 +8,16 @@ export function parseRepositoryAddress(value) {
   }
   try {
     const url = new URL(input);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || !/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(url.host)) {
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      !/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(url.host)
+    ) {
       return null;
     }
-    const forge = url.hostname.toLowerCase() === "github.com" ? "github" : "gitlab";
+    const forge =
+      url.hostname.toLowerCase() === "github.com" ? "github" : "gitlab";
     let path = url.pathname.replace(/^\/+|\/+$/g, "").split("/-/")[0];
     if (forge === "github") {
       const parts = path.split("/");
@@ -22,10 +28,19 @@ export function parseRepositoryAddress(value) {
     }
     path = path.replace(/\.git$/i, "");
     const parts = path.split("/");
-    if (parts.length < 2 || parts.some((part) => !/^[\w.-]+$/.test(part) || [".", ".."].includes(part))) {
+    if (
+      parts.length < 2 ||
+      parts.some(
+        (part) => !/^[\w.-]+$/.test(part) || [".", ".."].includes(part)
+      )
+    ) {
       return null;
     }
-    return { forge, host: url.host.toLowerCase(), repo_path: forge === "github" ? path.toLowerCase() : path };
+    return {
+      forge,
+      host: url.host.toLowerCase(),
+      repo_path: forge === "github" ? path.toLowerCase() : path,
+    };
   } catch {
     return null;
   }

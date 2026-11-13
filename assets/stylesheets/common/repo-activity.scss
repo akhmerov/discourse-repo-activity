@@ -13,12 +13,12 @@
   min-height: 0;
   line-height: var(--line-height-medium);
   max-width: min(18em, 30vw);
+  flex-shrink: 0;
 
   .repo-activity__full-label {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  flex-shrink: 0;
 
   &::before {
     content: "";
@@ -55,6 +55,9 @@
 
 .repo-activity__compact-label {
   display: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .repo-activity__popover {
@@ -225,7 +228,7 @@
 }
 
 @media (width <= 600px) {
-.repo-activity__full-label {
+  .repo-activity__full-label {
     display: none;
   }
 
@@ -264,9 +267,6 @@
   }
 }
 
-
-
-
 .repo-activity__settings {
   margin: 1em;
 }
@@ -295,8 +295,8 @@
   border-bottom: 1px solid var(--primary-low);
 
   .d-toggle-switch {
-  flex: 0 0 auto;
-}
+    flex: 0 0 auto;
+  }
 }
 
 .repo-manager__forge {
@@ -417,6 +417,10 @@
   margin: 0;
   font-family: var(--font-family-monospace);
   font-size: var(--font-down-1);
+  background: var(--secondary);
+  color: var(--primary);
+  opacity: 1;
+  cursor: text;
 }
 
 .repo-manager__check {
@@ -425,30 +429,47 @@
   border-radius: var(--d-border-radius);
 }
 
-
-
 @media (width <= 600px) {
   .repo-activity__manager .d-modal__container {
-  width: 100%;
-  max-width: 100%;
-}
+    width: 100%;
+    max-width: 100%;
+  }
 
   .repo-manager__row {
-  gap: var(--space-2);
-}
+    gap: var(--space-2);
+  }
 
   .repo-manager__footer {
-  align-items: stretch;
-  flex-direction: column;
-}
+    align-items: stretch;
+    flex-direction: column;
+  }
 
   .repo-manager__copy-field .btn {
-  padding-inline: var(--space-2);
-}
+    padding-inline: var(--space-2);
+  }
 }
 
 .repo-manager__seen {
   color: var(--primary-high);
   font-size: var(--font-down-1);
   margin: var(--space-1) 0 0;
+}
+
+.repo-manager__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin-inline: 0;
+
+  li + li::before {
+    content: "›";
+    margin-inline-end: var(--space-2);
+  }
+
+  [aria-current="step"] {
+    color: var(--primary);
+    font-weight: 700;
+  }
 }

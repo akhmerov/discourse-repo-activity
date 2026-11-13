@@ -72,7 +72,9 @@ export default class RepoActivityPopover extends Component {
       ...this.earlier,
       ...this._retained,
       ...(this.filtered || this.args.data.stream || []),
-    ]).filter((event) => !this.selected || event.connection_id === this.selected);
+    ]).filter(
+      (event) => !this.selected || event.connection_id === this.selected
+    );
     const hasNew = events.some((event) => event.id > this.args.highlightSince);
     const groups = [];
     let divided = false;
@@ -166,9 +168,15 @@ export default class RepoActivityPopover extends Component {
         // Walk bounded pages back to our retained window. Keeping only the old
         // "earlier" page would lose items displaced by a live burst.
         while (top && batch.earlier_before && batch.stream.at(-1)?.id > top) {
-          batch = await ajax(`/repo-activity/channels/${this.args.channelId}.json`, {
-            data: { before: batch.earlier_before, connection_id: this.selected },
-          });
+          batch = await ajax(
+            `/repo-activity/channels/${this.args.channelId}.json`,
+            {
+              data: {
+                before: batch.earlier_before,
+                connection_id: this.selected,
+              },
+            }
+          );
           if (request !== this.request || this.isDestroying) {
             return;
           }
@@ -219,8 +227,9 @@ export default class RepoActivityPopover extends Component {
   }
 
   #merge(events) {
-    return [...new Map(events.map((event) => [event.id, event])).values()]
-      .sort((a, b) => b.id - a.id);
+    return [...new Map(events.map((event) => [event.id, event])).values()].sort(
+      (a, b) => b.id - a.id
+    );
   }
 
   <template>

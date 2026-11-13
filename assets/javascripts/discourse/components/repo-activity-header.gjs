@@ -68,7 +68,9 @@ export default class RepoActivityHeader extends Component {
   get compactLabel() {
     return this.data?.new_count
       ? i18n("repo_activity.new_events", { count: this.data.new_count })
-      : i18n("repo_activity.multiple", { count: this.data?.repos?.length || 0 });
+      : i18n("repo_activity.multiple", {
+          count: this.data?.repos?.length || 0,
+        });
   }
 
   get failing() {
@@ -128,7 +130,9 @@ export default class RepoActivityHeader extends Component {
   @action
   async opened() {
     this.highlightSince = this.data.last_seen_event_id;
-    this.visitCounts = Object.fromEntries(this.data.repos.map((repo) => [repo.id, repo.new_count]));
+    this.visitCounts = Object.fromEntries(
+      this.data.repos.map((repo) => [repo.id, repo.new_count])
+    );
     const id = this.data.latest_event_id;
     try {
       await ajax(`/repo-activity/channels/${this.args.channel.id}/read.json`, {
@@ -167,7 +171,9 @@ export default class RepoActivityHeader extends Component {
     }
     this.#refreshing = true;
     try {
-      const data = await ajax(`/repo-activity/channels/${this.args.channel.id}.json`);
+      const data = await ajax(
+        `/repo-activity/channels/${this.args.channel.id}.json`
+      );
       if (!this.isDestroying) {
         // A concurrent mark-seen must never move this device backwards.
         if (data.last_seen_event_id < this.data.last_seen_event_id) {

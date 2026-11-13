@@ -61,6 +61,8 @@ RSpec.describe "Repository management screens" do
     end
     click_button("Continue")
     expect(page).to have_text("Content type: either option works")
+    expect(page).to have_css('.repo-manager__steps [aria-current="step"]', text: "2 Webhook")
+    expect(page).to have_no_text("— Webhook")
     expect(page).to have_css("a[href='https://github.com/acme/new-project/settings/hooks/new']")
     expect(page).to have_css(".repo-manager__secret[type=password]")
     click_button("Show")
@@ -68,8 +70,14 @@ RSpec.describe "Repository management screens" do
     click_button("Hide")
     expect(page).to have_css(".repo-manager__secret[type=password]")
     page.execute_script(<<~JS)
+      window.secretRequests = 0;
+      const open = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, ...args) {
+        if (url.includes('/secret.json')) { window.secretRequests++; }
+        return open.call(this, method, url, ...args);
+      };
       const validate = (text) => {
-        window.repoClipboardValid = /Secret: [a-f0-9]{64}/.test(text) && text.includes('/repo-activity/hooks/') && text.includes('Required: Pushes and Workflow runs');
+        window.repoClipboardValid = text.includes('Secret: <secret — I’ll send it separately>') && !/[a-f0-9]{64}/.test(text) && text.includes('/repo-activity/hooks/') && text.includes('Required: Pushes and Workflow runs');
       };
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
         write: async (items) => { validate(await (await items[0].getType('text/plain')).text()); },
@@ -79,6 +87,7 @@ RSpec.describe "Repository management screens" do
     click_button("Copy instructions for a repo admin")
     expect(page).to have_text("Copied to clipboard")
     expect(page.evaluate_script("window.repoClipboardValid")).to eq(true)
+    expect(page.evaluate_script("window.secretRequests")).to eq(0)
     click_button("I’ve added it")
     expect(page).to have_text("Waiting for GitHub’s test delivery")
     repo = DiscourseRepoActivity::Connection.find_by!(repo_path: "acme/new-project")
@@ -101,6 +110,11 @@ RSpec.describe "Repository management screens" do
     find(".dialog-footer .btn-primary").click
     expect(page).to have_text("This is a new secret")
     expect(page).to have_css(".repo-manager__secret[type=password]")
+    click_button("I’ve added it")
+    expect(page).to have_text(
+      "This repository is paused. Turn it on in the repository list before testing.",
+    )
+    click_button("Back")
     click_button("Back")
     find(".repo-manager__menu-trigger").click
     click_button("Remove repository")
