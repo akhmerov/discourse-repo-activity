@@ -66,6 +66,93 @@ module RepoActivitySimulation
     thesis-scripts
     old-benchmarks
   ].freeze
+  REPO_WORK = {
+    "kwant-ext" => [
+      "Cache evanescent lead modes",
+      "Check spinful hopping conjugation",
+      "Compare sparse LU conductance",
+    ],
+    "mesh-tools" => [
+      "Repair boundary-cell orientation",
+      "Keep physical tags on refinement",
+      "Validate tetrahedron volumes",
+    ],
+    "eigenflow" => [
+      "Track eigenvectors across crossings",
+      "Stabilize degenerate subspaces",
+      "Export spectral-flow branches",
+    ],
+    "lab-notebooks" => [
+      "Record environment hashes",
+      "Rerun the junction tutorial",
+      "Fix notebook figure captions",
+    ],
+    "transport-bench" => [
+      "Measure solver peak memory",
+      "Warm up the GPU benchmark",
+      "Store BLAS thread counts",
+    ],
+    "spectra-fit" => [
+      "Fit asymmetric spectral peaks",
+      "Weight residuals by shot noise",
+      "Plot posterior predictive bands",
+    ],
+    "bootstrap-tools" => [
+      "Resample experimental batches",
+      "Handle three-sample intervals",
+      "Seed independent bootstrap workers",
+    ],
+    "phase-map" => [
+      "Refine the critical-field grid",
+      "Mask unconverged phase points",
+      "Compare finite-size gap scaling",
+    ],
+    "cryo-control" => [
+      "Debounce the temperature interlock",
+      "Persist sensor calibration units",
+      "Retry interrupted ramp commands",
+    ],
+    "pulse-sequencer" => [
+      "Align trigger and ADC clocks",
+      "Validate microwave duty cycles",
+      "Preview shaped pulse envelopes",
+    ],
+    "aurora-releases" => [
+      "Verify signed environment exports",
+      "Assemble the lab software bundle",
+      "Check upgrade migration notes",
+    ],
+    "cluster-jobs" => [
+      "Retry preempted Slurm arrays",
+      "Limit concurrent GPU workers",
+      "Record scheduler accounting data",
+    ],
+    "lab-handbook" => [
+      "Clarify the cryostat booking rules",
+      "Add an onboarding checklist",
+      "Update the data-retention guide",
+    ],
+    "thesis-scripts" => [
+      "Restore archived figure sources",
+      "Document the frozen Python stack",
+      "Verify deposited data checksums",
+    ],
+    "old-benchmarks" => [
+      "Archive obsolete solver baselines",
+      "Record historical compiler flags",
+      "Index legacy timing datasets",
+    ],
+  }.freeze
+  AUTHORS = %w[
+    sim_theo_linden
+    sim_nora_finch
+    sim_sana_brook
+    sim_eli_rowan
+    jchen
+    m-rojas
+    external-kai
+  ].freeze
+
   COMMIT_MESSAGES = [
     "Use sparse LU for lead self-energies",
     "Check current conservation at zero bias",
@@ -279,26 +366,26 @@ module RepoActivitySimulation
 
   def payload(c, kind, n, state: "success", pr: false)
     sha = Digest::SHA1.hexdigest("#{c.id}:#{n}")
-    actor = "sim_#{NAMES[n % NAMES.length].downcase.tr(" ", "_")}"
+    actor = AUTHORS[(n + c.repo_path.bytes.sum) % AUTHORS.length]
     url = c.repository_url
     salt = c.repo_path.bytes.sum
     title =
       case kind
       when "pull_request"
-        PR_TITLES[(n / 1000 + n + salt) % PR_TITLES.length]
+        REPO_WORK.fetch(c.display_name)[n % 3]
       when "issues"
-        ISSUE_TITLES[(n + salt) % ISSUE_TITLES.length]
+        "#{REPO_WORK.fetch(c.display_name)[n % 3]}: unexpected edge case"
       when "release"
-        "#{c.display_name} 0.#{n / 1000 + 1}.0 — reproducible transport"
+        "#{c.display_name} #{1 + salt % 3}.#{salt % 9}.#{n % 7} — #{REPO_WORK.fetch(c.display_name).first.downcase}"
       else
-        COMMIT_MESSAGES[(n / 3 + salt) % COMMIT_MESSAGES.length]
+        REPO_WORK.fetch(c.display_name)[(n + salt) % 3]
       end
     branch = n % 9 == 0 ? "main" : %w[solver-cache error-estimates band-crossings][(n / 3) % 3]
     commit_list =
       (0..(n % 3)).map do |i|
         {
           id: (commit_sha = i.zero? ? sha : Digest::SHA1.hexdigest("#{c.id}:#{n}:#{i}")),
-          message: i.zero? ? title : COMMIT_MESSAGES[(n + i + salt) % COMMIT_MESSAGES.length],
+          message: i.zero? ? title : REPO_WORK.fetch(c.display_name)[(n + i + salt) % 3],
           author: {
             username: actor,
             name: actor.delete_prefix("sim_").tr("_", " ").titleize,
@@ -664,8 +751,7 @@ when "showcase"
           commit_sha = index.zero? ? sha : Digest::SHA1.hexdigest("#{repo.id}:#{number}:#{index}")
           {
             id: commit_sha,
-            message:
-              sim::COMMIT_MESSAGES[(repo.id + push * 3 + index) % sim::COMMIT_MESSAGES.length],
+            message: sim::REPO_WORK.fetch(repo.display_name)[(push + index) % 3],
             author: {
               username: "sim_mira_vale",
               name: "Mira Vale",
@@ -725,16 +811,43 @@ when "polish"
         case fixture_event.kind
         when "pr_opened", "pr_merged", "issue_opened"
           issue = fixture_event.kind == "issue_opened"
-          titles = issue ? sim::ISSUE_TITLES : sim::PR_TITLES
-          summary["title"] = titles[(repo.id + index) % titles.length]
-          summary["number"] = (issue ? 31 : 83) + index
+          titles = sim::REPO_WORK.fetch(repo.display_name)
+          summary[
+            "title"
+          ] = "#{titles[index % titles.length]}#{issue ? ": edge-case regression" : ""}"
+          summary["number"] = repo.repo_path.bytes.sum % 197 + (issue ? 11 : 53) + index
           path = issue ? "issues" : repo.forge == "github" ? "pull" : "-/merge_requests"
           path = "-/issues" if issue && repo.forge == "gitlab"
           summary["url"] = "#{repo.repository_url}/#{path}/#{summary["number"]}"
         when "release", "tag"
-          summary["title"] = "#{repo.display_name} 0.7.#{index} — reproducible transport"
+          version = "#{1 + repo.id % 3}.#{repo.id % 9}.#{index}"
+          summary["tag"] = "v#{version}"
+          summary[
+            "title"
+          ] = "#{repo.display_name} #{version} — #{sim::REPO_WORK.fetch(repo.display_name).first.downcase}"
+          summary[
+            "url"
+          ] = "#{repo.repository_url}/#{repo.forge == "github" ? "releases/tag" : "-/releases"}/v#{version}"
         end
-        fixture_event.update!(summary: summary)
+        fixture_event.update!(
+          summary: summary,
+          actor_login: sim::AUTHORS[(repo.id + index) % sim::AUTHORS.length],
+        )
+      end
+    repo
+      .events
+      .where(kind: "push")
+      .order(:id)
+      .each_with_index do |push_event, index|
+        summary = push_event.summary.deep_dup
+        Array(summary["commits"]).each_with_index do |commit, offset|
+          commit["message"] = sim::REPO_WORK.fetch(repo.display_name)[(index + offset) % 3]
+          commit["author"] = sim::AUTHORS[(repo.id + index + offset) % sim::AUTHORS.length]
+        end
+        push_event.update!(
+          summary: summary,
+          actor_login: sim::AUTHORS[(repo.id + index) % sim::AUTHORS.length],
+        )
       end
     repo
       .events
@@ -756,6 +869,8 @@ when "polish"
             },
           )
         raise "Fixture message update failed" if result.failure?
+        # This materializes fixture text, rather than simulating a user edit.
+        message.revisions.delete_all
       end
   end
   people = sim.users(40)
@@ -780,8 +895,47 @@ when "polish"
               },
             )
           raise "Fixture conversation update failed" if result.failure?
+          message.revisions.delete_all
         end
     end
+  analysis = sim.connections.map(&:chat_channel).find { |channel| channel.name == "Analysis" }
+  [
+    "The new spectra fit is ready. I excluded the first 20 ms after each field step.",
+    "Is that settling cut shared by both cooldowns? The second run had a slower thermometer.",
+    "Good catch. I used the same cut; I will estimate it separately from the raw trace.",
+    "I pushed a residual plot to spectra-fit. The shoulder is still there with a wider cut.",
+    "Could that shoulder be the reference sample? It appears at nearly the same field.",
+    "The reference peak moves with temperature. This one stays put within the resolution.",
+    "Let’s keep both models in the notebook until we have the calibration run.",
+    "I can take the calibration tomorrow morning before the ramp experiment.",
+    "For bootstrap-tools: please resample whole sweeps, not individual field points.",
+    "Agreed, neighboring points share the same drift. I added a batch-level example.",
+    "The wider intervals now cover the held-out sweep, which is reassuring.",
+    "We should also show the three-sample case; the normal approximation looks misleading.",
+    "I left a review on the interval implementation. Only one naming question remains.",
+    "Addressed. The random seeds are recorded with the exported confidence bands.",
+    "The phase-map refinement finished overnight. Two points near 0.8 T did not converge.",
+    "Please mask those before interpolation; otherwise the color scale invents a boundary.",
+    "Masked, with the convergence tolerance in the figure caption.",
+    "Can someone compare the small-system points against exact diagonalization?",
+    "I checked L=12 and L=16. The finite-size drift has the expected sign.",
+    "Thanks. I’ll put that check next to the scaling plot for Friday’s discussion.",
+    "The calibration slot is confirmed for 09:30. Nora, can you bring the reference sample?",
+    "Yes, it is labeled in the dry cabinet. I will also bring the previous cooldown log.",
+    "I updated the analysis checklist with the settling-time and batch-resampling decisions.",
+    "Great, we can pick this up after the calibration. No need to merge the alternative model yet.",
+  ].each_with_index do |text, index|
+    next if analysis.chat_messages.exists?(message: text)
+    result =
+      Chat::CreateMessage.call(
+        guardian: people[index % 8].guardian,
+        params: {
+          chat_channel_id: analysis.id,
+          message: text,
+        },
+      )
+    raise "Fixture discussion failed" if result.failure?
+  end
   puts "Fixture titles refreshed through native Chat updates; receipt order and CI unchanged"
   sim.report
 when "replay"
