@@ -11,19 +11,29 @@ can manage repositories in channels they can see. With
 `discourse-workspace-groups`, channel owners also get this entry in workspace
 channel settings. The plugin works independently of workspace groups.
 
-Select GitHub or GitLab, enter the host without a scheme and the repository
-path (GitLab supports nested groups), then add the repository. Copy its URL and
-secret into the forge's webhook settings. Use JSON and SSL verification.
+Paste the repository address, then follow the Repo → Webhook → Check screens.
+HTTPS addresses, `github.com/owner/repo`, nested GitLab project paths and
+`git@host:group/project.git` are accepted. Setup has explicit Show/Copy controls
+for the secret, a copyable set of instructions for a repo admin, and a live
+verified-delivery check. GitHub accepts JSON or its default form encoding; keep
+SSL verification enabled.
 
-* GitHub: Pushes, Workflow runs, Pull requests, Issues, Releases.
-* GitLab: Push, Tag push, Pipeline, Merge request, Issues, Release events.
+- GitHub required triggers: Pushes and Workflow runs. Pull requests, Issues and
+  Releases are optional. GitHub sends tags through Pushes too.
+- GitLab required triggers: Push events and Pipeline events. Tag push, Merge
+  request, Issues and Releases events are optional.
+
+Untick optional triggers on the forge if you do not want them in chat. There are
+no duplicated per-connection event settings in Discourse. The list shows recent
+received event types and safe delivery diagnostics to channel managers only.
 
 Connections are restricted to category channels; direct messages are excluded.
-The management dialog contains per-event toggles, an enable switch, secret
-regeneration, removal, and the last delivery/error. Regeneration invalidates the
-old secret immediately. Secret values are shown only in authorized management
-responses with `Cache-Control: no-store`; they never enter viewer snapshots or
-MessageBus messages.
+The management dialog lists each repo compactly, with delivery status, a pause
+switch and a menu for setup, a new secret or removal. Guided setup accepts a
+single repository address and checks verified deliveries live. Event selection
+belongs to the forge's webhook triggers: pushes and pipelines stay in the
+header; default-branch failures and received PR/MR, issue, release and tag events
+post to chat. Secrets are fetched only on explicit Show/Copy actions.
 
 ## Activity and announcements
 
@@ -31,7 +41,7 @@ Pushes and CI updates on every branch remain quiet. The channel header pill
 shows repository activity, default-branch failures and events since the viewer
 last opened the popover. Opening acknowledges only the displayed event cursor;
 newer concurrent events remain new. Desktop uses a 400px popover; mobile uses a
-bottom sheet and a compact dot/count pill so the channel title remains readable.
+bottom sheet and an explicitly labelled compact count.
 
 The top of the popover contains one filterable row per active repository,
 failing first, then most recently active. Repositories idle for fourteen days
@@ -61,8 +71,8 @@ edits it to `fixed in <sha>` and posts a threaded reply. Incident replies acquir
 the same connection/channel locks before native thread autosave; a late in-flight
 reply can restore an alert deleted during recovery. The incident remains in the
 Activity stream. A failure/recovery pair completed before announcement stays quiet.
-Recovery replies can be disabled; cleanup and fixing an existing alert still run.
-Failure alerts remain independent of quiet CI recording.
+Default-branch failure and recovery behavior is fixed; pushes and ordinary
+pipeline updates never post to chat.
 
 The initial alert mentions a pusher only when a push webhook supplied a matching
 Discourse username with visibility and channel membership. Forge-controlled
@@ -143,3 +153,6 @@ outlet can replace that bridge without changing the UI or API.
 
 See `docs/local-validation.md` for the exact tested core, commands, results and
 runtime limitations. No remote deployment is implied by these local checks.
+
+The current guided manager, delivery-status semantics, fixed event rules and
+screenshot matrix are documented in [repositories-ui.md](docs/repositories-ui.md).
