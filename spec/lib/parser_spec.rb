@@ -9,7 +9,7 @@ RSpec.describe DiscourseRepoActivity::Parser do
       created_by: admin,
       forge: "github",
       host: "github.com",
-      repo_path: "acme/sim-tools"
+      repo_path: "acme/sim-tools",
     )
   end
   fab!(:gitlab) do
@@ -18,7 +18,7 @@ RSpec.describe DiscourseRepoActivity::Parser do
       created_by: admin,
       forge: "gitlab",
       host: "gitlab.tudelft.nl",
-      repo_path: "group/nested/sim-tools"
+      repo_path: "group/nested/sim-tools",
     )
   end
 
@@ -32,22 +32,17 @@ RSpec.describe DiscourseRepoActivity::Parser do
         github,
         "github_pull_request",
         "pull_request",
-        { "action" => "closed", "pull_request" => { "merged" => true } }
+        { "action" => "closed", "pull_request" => { "merged" => true } },
       ),
       repo_parse(github, "github_issues", "issues"),
-      repo_parse(github, "github_release", "release")
+      repo_parse(github, "github_release", "release"),
     ]
     expect(results.map { |result| result[:kind] }).to eq(
-      %w[push tag ci pr_opened pr_merged issue_opened release]
+      %w[push tag ci pr_opened pr_merged issue_opened release],
     )
-    expect(results.first[:summary]).to include(
-      last_commit: "Fix solver",
-      commit_count: 1
-    )
+    expect(results.first[:summary]).to include(last_commit: "Fix solver", commit_count: 1)
     expect(results.last[:summary][:tag]).to eq("v1.0")
-    expect(results.map { |result| result[:default_branch] }.uniq).to eq(
-      ["main"]
-    )
+    expect(results.map { |result| result[:default_branch] }.uniq).to eq(["main"])
   end
 
   it "maps the supported nested-group GitLab fixtures" do
@@ -60,17 +55,17 @@ RSpec.describe DiscourseRepoActivity::Parser do
         gitlab,
         "gitlab_merge_request",
         "Merge Request Hook",
-        { "object_attributes" => { "action" => "merge" } }
+        { "object_attributes" => { "action" => "merge" } },
       ),
       repo_parse(gitlab, "gitlab_issue", "Issue Hook"),
-      repo_parse(gitlab, "gitlab_release", "Release Hook")
+      repo_parse(gitlab, "gitlab_release", "Release Hook"),
     ]
     expect(results.map { |result| result[:kind] }).to eq(
-      %w[push tag ci pr_opened pr_merged issue_opened release]
+      %w[push tag ci pr_opened pr_merged issue_opened release],
     )
     expect(results[2][:jobs]).to eq(["test"])
     expect(results.last[:summary][:url]).to eq(
-      "https://gitlab.tudelft.nl/group/nested/sim-tools/-/releases/v1.0"
+      "https://gitlab.tudelft.nl/group/nested/sim-tools/-/releases/v1.0",
     )
   end
 
@@ -82,19 +77,12 @@ RSpec.describe DiscourseRepoActivity::Parser do
         "workflow_run",
         {
           "workflow_run" => {
-            "pull_requests" => [
-              { "number" => 8, "base" => { "repo" => { "id" => 42 } } }
-            ]
-          }
-        }
+            "pull_requests" => [{ "number" => 8, "base" => { "repo" => { "id" => 42 } } }],
+          },
+        },
       )
     gitlab_run =
-      repo_parse(
-        gitlab,
-        "gitlab_pipeline",
-        "Pipeline Hook",
-        { "merge_request" => { "iid" => 8 } }
-      )
+      repo_parse(gitlab, "gitlab_pipeline", "Pipeline Hook", { "merge_request" => { "iid" => 8 } })
     expect([github_run[:ref_kind], gitlab_run[:ref_kind]]).to eq(%w[pr pr])
     expect([github_run[:ref_name], gitlab_run[:ref_name]]).to eq(%w[pr/8 pr/8])
   end
@@ -106,39 +94,25 @@ RSpec.describe DiscourseRepoActivity::Parser do
         github,
         "github_issues",
         "issues",
-        { "issue" => { "html_url" => "javascript:alert(1)", "body" => body } }
+        { "issue" => { "html_url" => "javascript:alert(1)", "body" => body } },
       )
     expect(parsed[:summary][:url]).to be_nil
     expect(parsed.to_json).not_to include(body)
   end
 
   it "marks closed PR refs for deletion even without a merge" do
-    result =
-      repo_parse(
-        github,
-        "github_pull_request",
-        "pull_request",
-        { "action" => "closed" }
-      )
-    expect(result).to include(
-      kind: "pr_closed",
-      delete_ref: true,
-      ref_name: "pr/8"
-    )
+    result = repo_parse(github, "github_pull_request", "pull_request", { "action" => "closed" })
+    expect(result).to include(kind: "pr_closed", delete_ref: true, ref_name: "pr/8")
   end
+
   it "skips unidentified fork and PR workflows even when their branch is main" do
     [
       { "event" => "pull_request" },
       { "event" => "pull_request_target" },
-      { "head_repository" => { "id" => 99 } }
+      { "head_repository" => { "id" => 99 } },
     ].each do |run|
       expect(
-        repo_parse(
-          github,
-          "github_workflow_run",
-          "workflow_run",
-          "workflow_run" => run
-        )
+        repo_parse(github, "github_workflow_run", "workflow_run", "workflow_run" => run),
       ).to be_nil
       parsed =
         repo_parse(
@@ -147,10 +121,8 @@ RSpec.describe DiscourseRepoActivity::Parser do
           "workflow_run",
           "workflow_run" =>
             run.merge(
-              "pull_requests" => [
-                { "number" => 8, "base" => { "repo" => { "id" => 42 } } }
-              ]
-            )
+              "pull_requests" => [{ "number" => 8, "base" => { "repo" => { "id" => 42 } } }],
+            ),
         )
       expect(parsed).to include(ref_kind: "pr", ref_name: "pr/8")
     end
@@ -163,30 +135,19 @@ RSpec.describe DiscourseRepoActivity::Parser do
         "github_issues",
         "issues",
         "issue" => {
-          "html_url" => "https://github.com/Acme/Sim-Tools/issues/1"
-        }
+          "html_url" => "https://github.com/Acme/Sim-Tools/issues/1",
+        },
       )
-    expect(parsed[:summary][:url]).to eq(
-      "https://github.com/Acme/Sim-Tools/issues/1"
-    )
+    expect(parsed[:summary][:url]).to eq("https://github.com/Acme/Sim-Tools/issues/1")
     %w[
       https://github.com/acme/sim-tools-other/issues/1
       http://github.com/Acme/Sim-Tools/issues/1
       https://evil.example/Acme/Sim-Tools/issues/1
     ].each do |url|
       expect(
-        repo_parse(
-          github,
-          "github_issues",
-          "issues",
-          "issue" => {
-            "html_url" => url
-          }
-        )[
-          :summary
-        ][
+        repo_parse(github, "github_issues", "issues", "issue" => { "html_url" => url })[:summary][
           :url
-        ]
+        ],
       ).to be_nil
     end
   end
@@ -198,11 +159,12 @@ RSpec.describe DiscourseRepoActivity::Parser do
         "gitlab_pipeline",
         "Pipeline Hook",
         "object_attributes" => {
-          "source" => "merge_request_event"
-        }
-      )
+          "source" => "merge_request_event",
+        },
+      ),
     ).to be_nil
   end
+
   it "skips GitHub runs without workflow identity" do
     expect(
       repo_parse(
@@ -210,11 +172,12 @@ RSpec.describe DiscourseRepoActivity::Parser do
         "github_workflow_run",
         "workflow_run",
         "workflow_run" => {
-          "workflow_id" => nil
-        }
-      )
+          "workflow_id" => nil,
+        },
+      ),
     ).to be_nil
   end
+
   it "ignores fork-base PR entries on upstream branch workflows" do
     parsed =
       repo_parse(
@@ -222,10 +185,8 @@ RSpec.describe DiscourseRepoActivity::Parser do
         "github_workflow_run",
         "workflow_run",
         "workflow_run" => {
-          "pull_requests" => [
-            { "number" => 9, "base" => { "repo" => { "id" => 99 } } }
-          ]
-        }
+          "pull_requests" => [{ "number" => 9, "base" => { "repo" => { "id" => 99 } } }],
+        },
       )
     expect(parsed).to include(ref_kind: "branch", ref_name: "main")
   end
@@ -236,15 +197,54 @@ RSpec.describe DiscourseRepoActivity::Parser do
       https://gitlab.tudelft.nl/Group/Nested/Sim-Tools-other/-/issues/1
     ].each_with_index do |url, index|
       parsed =
-        repo_parse(
-          gitlab,
-          "gitlab_issue",
-          "Issue Hook",
-          "object_attributes" => {
-            "url" => url
-          }
-        )
+        repo_parse(gitlab, "gitlab_issue", "Issue Hook", "object_attributes" => { "url" => url })
       expect(parsed[:summary][:url]).to eq(index.zero? ? url : nil)
     end
+  end
+
+  it "stores at most twenty validated commits with first-line messages and forge-only URLs" do
+    commits =
+      25.times.map do |i|
+        {
+          "id" => "%040x" % (i + 1),
+          "message" => "Fix mode #{i}\nPrivate body",
+          "author" => {
+            "username" => "alice",
+            "name" => "Alice",
+          },
+          "url" => "https://evil.example/commit/1",
+        }
+      end
+    data = repo_parse(github, "github_push", "push", "size" => 50, "commits" => commits)
+    expect(data[:summary][:commit_count]).to eq(50)
+    expect(data[:summary][:commits].size).to eq(20)
+    expect(data[:summary][:commits].first).to include(message: "Fix mode 5", author: "alice")
+    expect(data[:summary][:commits].map { |c| c[:url] }).to all(start_with(github.repository_url))
+    expect(data.to_json).not_to include("Private body", "evil.example")
+  end
+
+  it "stores GitLab commit authors and the provider total rather than the truncated list size" do
+    data =
+      repo_parse(
+        gitlab,
+        "gitlab_push",
+        "Push Hook",
+        "total_commits_count" => 29,
+        "commits" => [
+          {
+            "id" => "b" * 40,
+            "message" => "Fix lead modes\nMore details",
+            "author" => {
+              "name" => "Bob",
+            },
+          },
+        ],
+      )
+    expect(data[:summary][:commit_count]).to eq(29)
+    expect(data[:summary][:commits].sole).to include(
+      sha: "b" * 40,
+      message: "Fix lead modes",
+      author: "Bob",
+    )
   end
 end

@@ -6,19 +6,8 @@ module DiscourseRepoActivity
       message_bus_last_id = MessageBus.last_id("/repo-activity/#{channel.id}")
       seen =
         user &&
-          ChannelRead.find_by(
-            user_id: user.id,
-            chat_channel_id: channel.id
-          )&.last_seen_event_id
-      # Fetch each repository's own recent window: a noisy repository must not
-      # hide a quieter repository's history from the channel snapshot.
-      events = Event.find_by_sql([<<~SQL, channel.id])
-        SELECT * FROM (
-          SELECT repo_activity_events.*,
-                 row_number() OVER (PARTITION BY connection_id ORDER BY id DESC) AS event_rank
-          FROM repo_activity_events WHERE chat_channel_id = ?
-        ) recent WHERE event_rank <= 50 ORDER BY id DESC
-      SQL
+          ChannelRead.find_by(user_id: user.id, chat_channel_id: channel.id)&.last_seen_event_id
+      events = Event.where(chat_channel_id: channel.id).order(id: :desc).limit(40).to_a
 
       repos =
         Connection
@@ -34,15 +23,12 @@ module DiscourseRepoActivity
                   "head_sha",
                   "pushed_by_login",
                   "ci_state",
-                  "ci_runs",
-                  "updated_at"
+                  "updated_at",
                 )
               end
-            recent = events.select { |e| e.connection_id == c.id }.first(50)
+            latest = c.events.order(id: :desc).first
             default_ref =
-              refs.find do |r|
-                r["kind"] == "branch" && r["ref_name"] == c.default_branch
-              end
+              refs.find { |r| r["kind"] == "branch" && r["ref_name"] == c.default_branch }
             {
               id: c.id,
               display_name: c.display_name,
@@ -50,42 +36,61 @@ module DiscourseRepoActivity
               enabled: c.enabled,
               default_branch: c.default_branch,
               default_ref: default_ref,
-              refs: refs,
               failing: default_ref&.dig("ci_state") == "failed",
-              last_activity_at: recent.first&.created_at,
-              pushes_today: Event.pushes_today(c.id),
-              events:
-                recent.map do |e|
-                  e.attributes.slice(
-                    "id",
-                    "kind",
-                    "actor_login",
-                    "summary",
-                    "created_at"
-                  )
-                end
+              last_activity_at: latest&.created_at,
+              new_count: user ? c.events.where("id > ?", seen.to_i).count : nil,
             }
           end
       {
-        repos:
-          repos.sort_by do |r|
-            [r[:failing] ? 0 : 1, -(r[:last_activity_at]&.to_f || 0)]
-          end,
+        repos: repos.sort_by { |r| [r[:failing] ? 0 : 1, -(r[:last_activity_at]&.to_f || 0)] },
+        **stream(channel),
         message_bus_last_id: message_bus_last_id,
         last_seen_event_id: seen.to_i,
         latest_event_id: events.first&.id || 0,
         new_count:
           (
             if user
-              Event
-                .where(chat_channel_id: channel.id)
-                .where("id > ?", seen.to_i)
-                .count
+              Event.where(chat_channel_id: channel.id).where("id > ?", seen.to_i).count
             else
               nil
             end
           ),
-        can_manage: user && DiscourseRepoActivity.can_manage?(channel, user)
+        can_manage: user && DiscourseRepoActivity.can_manage?(channel, user),
+      }
+    end
+
+    # A bounded arrival-ordered page; CI updates decorate pushes, never flood the stream.
+    def self.stream(channel, before: nil, connection_id: nil)
+      scope = Event.where(chat_channel_id: channel.id).where.not(kind: "ci")
+      scope = scope.where(connection_id: connection_id) if connection_id.present?
+      scope = scope.where("id < ?", before.to_i) if before.present?
+      page = scope.order(id: :desc).limit(31).to_a
+      more = page.length > 30
+      page = page.first(30)
+      refs =
+        Ref
+          .where(connection_id: page.map(&:connection_id))
+          .index_by { |r| [r.connection_id, r.ref_name] }
+      {
+        stream:
+          page.map do |event|
+            data =
+              event.attributes.slice(
+                "id",
+                "connection_id",
+                "kind",
+                "actor_login",
+                "summary",
+                "created_at",
+              )
+            ref = refs[[event.connection_id, event.summary["ref"]]]
+            if ref && ref.head_sha == event.summary["sha"]
+              data["ci_state"] = ref.ci_state
+              data["ci_runs"] = ref.ci_runs.first(10).to_h
+            end
+            data
+          end,
+        earlier_before: more ? page.last.id : nil,
       }
     end
 
@@ -95,21 +100,15 @@ module DiscourseRepoActivity
            "repo-activity:publish:#{channel.id}",
            "1",
            nx: true,
-           ex: 1.minute.to_i
+           ex: 1.minute.to_i,
          )
-        Jobs.enqueue_in(
-          1.second,
-          :repo_activity_publish,
-          channel_id: channel.id
-        )
+        Jobs.enqueue_in(1.second, :repo_activity_publish, channel_id: channel.id)
       end
     end
 
     def self.publish_now(channel)
       return if channel.nil? || channel.trashed?
-      payload =
-        self.for(channel).except(:last_seen_event_id, :new_count, :can_manage)
-      payload[:event_ids] = Event.where(chat_channel_id: channel.id).pluck(:id)
+      payload = self.for(channel).except(:last_seen_event_id, :new_count, :can_manage)
       permissions = Chat::Publisher.permissions(channel)
       if permissions.empty?
         # Native public-channel publication is global; never broadcast repo

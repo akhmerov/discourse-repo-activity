@@ -11,21 +11,14 @@ module DiscourseRepoActivity
       result = @connection.forge == "github" ? github(event) : gitlab(event)
       return unless result
       result[:default_branch] = text(
-        @payload.dig(
-          @connection.forge == "github" ? "repository" : "project",
-          "default_branch"
-        ),
-        200
+        @payload.dig(@connection.forge == "github" ? "repository" : "project", "default_branch"),
+        200,
       )
       result[:actor] = text(result[:actor], 100)
       result[:ref_name] = text(result[:ref_name], 300)
-      result[:sha] = result[:sha].to_s[/\A[0-9a-f]{7,64}\z/i] if result.key?(
-        :sha
-      )
+      result[:sha] = result[:sha].to_s[/\A[0-9a-f]{7,64}\z/i] if result.key?(:sha)
       result[:summary] ||= {}
-      result[:summary].transform_values! do |value|
-        value.is_a?(String) ? text(value, 500) : value
-      end
+      result[:summary].transform_values! { |value| value.is_a?(String) ? text(value, 500) : value }
       result[:summary][:url] = safe_url(result[:summary][:url])
       result
     end
@@ -57,34 +50,25 @@ module DiscourseRepoActivity
                   p["compare"]
                 end
               ),
-            commit_count: Array(p["commits"]).size,
-            last_commit:
-              text(p.dig("head_commit", "message").to_s.lines.first, 200)
-          }
+            commit_count: [p["size"].to_i, Array(p["commits"]).size].max,
+            commits: commits(p["commits"]),
+            last_commit: text(p.dig("head_commit", "message").to_s.lines.first, 200),
+          },
         }
       when "workflow_run"
         run = p["workflow_run"] || {}
         return if run["workflow_id"].blank?
         pr =
           Array(run["pull_requests"]).find do |item|
-            item["number"].present? &&
-              item.dig("base", "repo", "id") == p.dig("repository", "id")
+            item["number"].present? && item.dig("base", "repo", "id") == p.dig("repository", "id")
           end
         foreign =
           run.dig("head_repository", "id").present? &&
             run.dig("head_repository", "id") != p.dig("repository", "id")
-        if !pr &&
-             (
-               foreign ||
-                 %w[pull_request pull_request_target].include?(run["event"])
-             )
-          return
-        end
+        return if !pr && (foreign || %w[pull_request pull_request_target].include?(run["event"]))
         {
           kind: "ci",
-          actor:
-            run.dig("head_commit", "author", "username") ||
-              run.dig("actor", "login") || actor,
+          actor: run.dig("head_commit", "author", "username") || run.dig("actor", "login") || actor,
           ref_name: pr ? "pr/#{pr["number"]}" : run["head_branch"],
           ref_kind: pr ? "pr" : "branch",
           pr_number: pr&.dig("number"),
@@ -95,18 +79,15 @@ module DiscourseRepoActivity
           run_id: run["id"].to_i,
           run_attempt: run["run_attempt"].to_i,
           summary: {
-            title:
-              "#{run["name"]}: #{run["conclusion"].presence || run["status"]}",
-            url: run["html_url"]
-          }
+            title: "#{run["name"]}: #{run["conclusion"].presence || run["status"]}",
+            url: run["html_url"],
+          },
         }
       when "pull_request"
         pr = p["pull_request"] || {}
         action = p["action"]
         kind =
-          action == "opened" ?
-            "pr_opened" :
-            action == "closed" && pr["merged"] ? "pr_merged" : nil
+          action == "opened" ? "pr_opened" : action == "closed" && pr["merged"] ? "pr_merged" : nil
         return unless kind || action == "closed"
         {
           kind: kind || "pr_closed",
@@ -118,8 +99,9 @@ module DiscourseRepoActivity
           delete_ref: action == "closed",
           summary: {
             title: pr["title"],
-            url: pr["html_url"]
-          }
+            number: pr["number"] || p["number"],
+            url: pr["html_url"],
+          },
         }
       when "issues"
         return unless p["action"] == "opened"
@@ -128,8 +110,9 @@ module DiscourseRepoActivity
           actor: actor,
           summary: {
             title: p.dig("issue", "title"),
-            url: p.dig("issue", "html_url")
-          }
+            number: p.dig("issue", "number"),
+            url: p.dig("issue", "html_url"),
+          },
         }
       when "release"
         return unless p["action"] == "published"
@@ -140,8 +123,8 @@ module DiscourseRepoActivity
           summary: {
             title: release["name"].presence || release["tag_name"],
             tag: release["tag_name"],
-            url: release["html_url"]
-          }
+            url: release["html_url"],
+          },
         }
       end
     end
@@ -173,13 +156,10 @@ module DiscourseRepoActivity
                   "#{base}/-/commit/#{p["after"]}"
                 end
               ),
-            commit_count: p["total_commits_count"].to_i,
-            last_commit:
-              text(
-                Array(p["commits"]).last&.dig("message").to_s.lines.first,
-                200
-              )
-          }
+            commit_count: [p["total_commits_count"].to_i, Array(p["commits"]).size].max,
+            commits: commits(p["commits"]),
+            last_commit: text(Array(p["commits"]).last&.dig("message").to_s.lines.first, 200),
+          },
         }
       when "Pipeline Hook"
         number =
@@ -200,24 +180,17 @@ module DiscourseRepoActivity
           run_attempt: 0,
           summary: {
             title: "Pipeline #{attrs["status"]}",
-            url: attrs["url"] || "#{base}/-/pipelines/#{attrs["id"]}"
+            url: attrs["url"] || "#{base}/-/pipelines/#{attrs["id"]}",
           },
           jobs:
             Array(p["builds"])
               .select { |b| b["status"] == "failed" }
               .first(30)
-              .map { |b| text(b["name"], 100) }
+              .map { |b| text(b["name"], 100) },
         }
       when "Merge Request Hook"
         action = attrs["action"]
-        kind =
-          {
-            "open" => "pr_opened",
-            "merge" => "pr_merged",
-            "close" => "pr_closed"
-          }[
-            action
-          ]
+        kind = { "open" => "pr_opened", "merge" => "pr_merged", "close" => "pr_closed" }[action]
         return unless kind
         {
           kind: kind,
@@ -229,8 +202,9 @@ module DiscourseRepoActivity
           delete_ref: %w[merge close].include?(action),
           summary: {
             title: attrs["title"],
-            url: attrs["url"]
-          }
+            number: attrs["iid"],
+            url: attrs["url"],
+          },
         }
       when "Issue Hook"
         return unless attrs["action"] == "open"
@@ -239,8 +213,9 @@ module DiscourseRepoActivity
           actor: actor,
           summary: {
             title: attrs["title"],
-            url: attrs["url"]
-          }
+            number: attrs["iid"],
+            url: attrs["url"],
+          },
         }
       when "Release Hook"
         return unless p["action"] == "create"
@@ -250,23 +225,38 @@ module DiscourseRepoActivity
           summary: {
             title: p["name"].presence || p["tag"],
             tag: p["tag"],
-            url: "#{base}/-/releases/#{ERB::Util.url_encode(p["tag"].to_s)}"
-          }
+            url: "#{base}/-/releases/#{ERB::Util.url_encode(p["tag"].to_s)}",
+          },
         }
       end
     end
 
+    def commits(values)
+      Array(values)
+        .last(20)
+        .filter_map do |commit|
+          sha = commit["id"].to_s[/\A[0-9a-f]{7,64}\z/i]
+          next unless sha
+          {
+            sha: sha,
+            message: text(commit["message"].to_s.lines.first, 300),
+            author: text(commit.dig("author", "username") || commit.dig("author", "name"), 100),
+            url:
+              safe_url(commit["url"]) ||
+                "#{base}/#{@connection.forge == "github" ? "commit" : "-/commit"}/#{sha}",
+          }
+        end
+    end
+
     def state(value)
       case value
-      when "failure", "failed", "timed_out", "action_required",
-           "startup_failure", "stale"
+      when "failure", "failed", "timed_out", "action_required", "startup_failure", "stale"
         "failed"
       when "success"
         "success"
       when "neutral", "skipped", "cancelled", "canceled"
         "neutral"
-      when "queued", "pending", "created", "waiting_for_resource", "requested",
-           "waiting"
+      when "queued", "pending", "created", "waiting_for_resource", "requested", "waiting"
         "pending"
       else
         "running"

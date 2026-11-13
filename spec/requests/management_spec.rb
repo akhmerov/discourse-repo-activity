@@ -77,6 +77,7 @@ RSpec.describe "Repository management" do
     get "/repo-activity/channels/#{private_channel.id}.json"
     expect(response.status).to eq(404)
   end
+
   it "allows managers to disable every event" do
     sign_in(admin)
     put "/repo-activity/channels/#{channel.id}/connections/#{connection.id}.json",
@@ -87,6 +88,7 @@ RSpec.describe "Repository management" do
     expect(response.status).to eq(200)
     expect(connection.reload.enabled_events).to eq([])
   end
+
   it "rejects DM connections both through the API and model" do
     DiscourseRepoActivity::Bot.ensure!
     dm = Fabricate(:direct_message_channel, users: [admin, member])
@@ -109,6 +111,7 @@ RSpec.describe "Repository management" do
       )
     ).to be_empty
   end
+
   it "publishes monotone read acknowledgements only to the reading user" do
     event = connection.events.create!(chat_channel_id: channel.id, kind: "push")
     sign_in(member)
@@ -124,7 +127,7 @@ RSpec.describe "Repository management" do
       end
     expect(messages.size).to eq(2)
     messages.each do |message|
-      expect(message.data).to eq(last_seen_event_id: event.id)
+      expect(message.data).to eq(last_seen_event_id: event.id, new_count: 0)
       expect(message.user_ids).to eq([member.id])
       expect(
         MessageBus::Client.new(
