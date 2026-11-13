@@ -286,8 +286,14 @@ RSpec.describe DiscourseRepoActivity::HooksController do
     expect(connection.reload.last_delivery_error).to eq("invalid_payload")
     expect(connection.last_delivery_error_at).to be_present
     expect(connection.attributes.to_json.include?(body)).to eq(false)
+    failure_at = connection.last_delivery_error_at
     deliver(event: "unknown-event")
     expect(connection.management_json["delivery_status"]).to eq("receiving")
+    expect(connection.management_json["last_delivery_error"]).to eq("invalid_payload")
+    freeze_time 61.seconds.from_now
+    Jobs::RepoActivityDeliveryStatus.new.execute(connection_id: connection.id)
+    expect(connection.reload.delivery_status).to eq("receiving")
+    expect(connection.last_delivery_error_at).to eq_time(failure_at)
   end
 
   it "coalesces successful delivery timestamp writes within a minute" do

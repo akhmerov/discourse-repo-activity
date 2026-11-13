@@ -129,8 +129,16 @@ module DiscourseRepoActivity
                 state.fetch("last_delivery_at", connection.last_delivery_at&.iso8601)
               end
             ),
-          "last_delivery_error" => rejected ? status : nil,
-          "last_delivery_error_at" => rejected ? now.iso8601 : nil,
+          "last_delivery_error" =>
+            rejected ? status : state.fetch("last_delivery_error", connection.last_delivery_error),
+          "last_delivery_error_at" =>
+            (
+              if rejected
+                now.iso8601
+              else
+                state.fetch("last_delivery_error_at", connection.last_delivery_error_at&.iso8601)
+              end
+            ),
           "rejected_deliveries" => rejected ? state.fetch("rejected_deliveries", 0) + 1 : 0,
           "missing_hook_events" => missing,
           "received_event_types" => types,
