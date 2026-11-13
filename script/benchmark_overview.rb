@@ -10,7 +10,7 @@ require "benchmark"
 user = User.find_by!(username: "sim_theo_linden")
 owner = User.find_by!(username: "sim_mira_vale")
 client = ActionDispatch::Integration::Session.new(Rails.application)
-client.host! "port51330.dev.hell.antonakhmerov.org"
+client.host! Discourse.current_hostname
 client.https!
 client.get "/session/#{user.username}/become"
 raise "Local login failed: #{client.response.status}" unless client.response.status.in?([200, 302])
