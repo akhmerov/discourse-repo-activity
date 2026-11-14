@@ -44,6 +44,18 @@ RSpec.describe "Repository management screens" do
     expect(session.response.status).to eq(200)
   end
 
+  it "uses just now for recent deliveries without appending ago twice" do
+    connection.update!(delivery_status: "receiving", last_delivery_at: 20.seconds.ago)
+    open_manager
+    expect(page).to have_text("Receiving · last delivery just now")
+    expect(page).to have_no_text("just now ago")
+    connection.update!(last_delivery_at: 2.minutes.ago)
+    page.refresh
+    find(".repo-activity__pill").click
+    find(".repo-activity__manage").click
+    expect(page).to have_text("Receiving · last delivery 2m ago")
+  end
+
   it "parses repo addresses, guides setup, reveals explicitly and checks delivery live" do
     open_manager
     expect(page).to have_no_css(".repo-manager__secret")

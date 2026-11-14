@@ -13,7 +13,7 @@ import { i18n } from "discourse-i18n";
 import RepoActivityManager from "./modal/repo-activity-manager.gjs";
 import RepoActivityPopover from "./repo-activity-popover.gjs";
 
-export function age(value) {
+export function age(value, { ago = false } = {}) {
   if (!value) {
     return i18n("repo_activity.no_activity");
   }
@@ -21,13 +21,16 @@ export function age(value) {
     0,
     Math.floor((Date.now() - new Date(value)) / 60000)
   );
-  if (minutes < 60) {
-    return i18n("repo_activity.minutes", { count: minutes });
+  if (minutes < 1) {
+    return i18n("now");
   }
-  if (minutes < 1440) {
-    return i18n("repo_activity.hours", { count: Math.floor(minutes / 60) });
-  }
-  return i18n("repo_activity.days", { count: Math.floor(minutes / 1440) });
+  const time =
+    minutes < 60
+      ? i18n("repo_activity.minutes", { count: minutes })
+      : minutes < 1440
+        ? i18n("repo_activity.hours", { count: Math.floor(minutes / 60) })
+        : i18n("repo_activity.days", { count: Math.floor(minutes / 1440) });
+  return ago ? i18n("repo_activity.time_ago", { time }) : time;
 }
 
 export default class RepoActivityHeader extends Component {

@@ -89,7 +89,7 @@ RSpec.describe "Workspace repository overview" do
     visit("#{@workspace.url}/overview")
     expect(page).to have_css(".repo-activity__chip", count: 5)
     expect(page).to have_css(".repo-activity__chip", text: "+1")
-    expect(page).to have_css(".repo-activity__chip-failure", text: "main failing")
+    expect(page).to have_css(".repo-activity__chip-failure", text: "main failing · just now")
     expect(page).to have_css(".repo-activity__card-new", text: "5 new")
     find(".repo-activity__chip", text: "repo-0").click
     expect(page).to have_css(".repo-activity__popover")

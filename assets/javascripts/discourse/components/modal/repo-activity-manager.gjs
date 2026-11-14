@@ -86,7 +86,7 @@ export default class RepoActivityManager extends Component {
           ? i18n("repo_activity.manager.waiting")
           : connection.delivery_status === "receiving"
             ? i18n("repo_activity.manager.receiving", {
-                age: age(connection.last_delivery_at),
+                age: age(connection.last_delivery_at, { ago: true }),
               })
             : i18n("repo_activity.manager.rejected", {
                 count: connection.rejected_deliveries,

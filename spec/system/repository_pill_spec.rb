@@ -98,6 +98,42 @@ RSpec.describe "Repository activity pill" do
     expect(page).to have_no_css(".repo-activity__event", text: "Tag · v1.0")
   end
 
+  it "uses just now below a minute, preserving minute, hour and day ages" do
+    activity.update!(created_at: 20.seconds.ago)
+    [
+      [70.seconds.ago, "One minute"],
+      [2.hours.ago, "Two hours"],
+      [3.days.ago, "Three days"],
+    ].each do |time, title|
+      connection.events.create!(
+        chat_channel_id: channel.id,
+        kind: "issue_opened",
+        created_at: time,
+        summary: {
+          title: title,
+        },
+      )
+    end
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "push",
+      created_at: 20.seconds.ago,
+      summary: {
+        title: "Recent push",
+      },
+    )
+    connection.refs.create!(ref_name: "main", kind: "branch", updated_at: 20.seconds.ago)
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    expect(page).to have_css(".repo-activity__full-label", text: "just now")
+    find(".repo-activity__pill").click
+    expect(page).to have_css(".repo-activity__repo-state", text: "just now")
+    expect(page).to have_css(".repo-activity__group-header time", text: "just now", count: 2)
+    expect(page).to have_css(".repo-activity__event", text: "One minute 1m")
+    expect(page).to have_css(".repo-activity__event", text: "Two hours 2h")
+    expect(page).to have_css(".repo-activity__event", text: "Three days 3d")
+    expect(page).to have_no_text(/\b0m\b/)
+  end
+
   it "uses a compact icon and unread badge on a narrow desktop" do
     page.current_window.resize_to(390, 844)
     visit("/chat/c/#{channel.slug}/#{channel.id}")
@@ -363,7 +399,7 @@ RSpec.describe "Repository activity pill" do
     end
     Jobs::RepoActivityPublish.new.execute(channel_id: channel.id)
     expect(page).to have_css(".repo-activity__event", text: "Incoming 34")
-    expect(page).to have_css(".repo-activity__event", text: /Incoming 0 0m$/)
+    expect(page).to have_css(".repo-activity__event", text: /Incoming 0 just now$/)
     expect(page).to have_css(".repo-activity__event", text: "Historical 35")
     expect(page).to have_css(".repo-activity__event", text: "Historical 5")
     expect(page).to have_css(".repo-activity__event", count: 95)

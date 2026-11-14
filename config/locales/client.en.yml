@@ -55,6 +55,7 @@ en:
         success: "Passing"
         failed: "Failing"
         neutral: "Cancelled or skipped"
+      time_ago: "%{time} ago"
       stream_event:
         push: "Push"
         failure: "CI failed"
@@ -76,7 +77,7 @@ en:
         per_repo: "Each repo has its own webhook address and secret."
         paused: "Paused · deliveries are ignored"
         waiting: "Waiting for first delivery"
-        receiving: "Receiving · last delivery %{age} ago"
+        receiving: "Receiving · last delivery %{age}"
         rejected:
           one: "Last delivery rejected: %{reason}"
           other: "Last %{count} deliveries rejected: %{reason}"
