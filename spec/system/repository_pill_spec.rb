@@ -33,6 +33,71 @@ RSpec.describe "Repository activity pill" do
     sign_in(user)
   end
 
+  it "qualifies colliding names, uses native PR/MR identifiers and hides a retained tag when its release arrives" do
+    other =
+      DiscourseRepoActivity::Connection.create!(
+        chat_channel: channel,
+        created_by: user,
+        forge: "gitlab",
+        host: "gitlab.example.org",
+        repo_path: "research/sim-tools",
+      )
+    [connection, other].each do |repo|
+      repo.events.create!(
+        chat_channel_id: channel.id,
+        kind: "pr_merged",
+        summary: {
+          title: "Improve mesh",
+          number: 244,
+          url: "#{repo.repository_url}/changes/244",
+        },
+      )
+    end
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "tag",
+      summary: {
+        tag: "v1.0",
+        title: "v1.0",
+      },
+    )
+    visit("/chat/c/#{channel.slug}/#{channel.id}")
+    find(".repo-activity__pill").click
+    expect(page).to have_css(".repo-activity__repo-row", text: "acme/sim-tools")
+    expect(page).to have_css(".repo-activity__repo-row", text: "research/sim-tools")
+    expect(page).to have_css(
+      ".repo-activity__event",
+      text: "acme/sim-tools · PR merged · #244 Improve mesh",
+    )
+    expect(page).to have_css(
+      ".repo-activity__event",
+      text: "research/sim-tools · MR merged · !244 Improve mesh",
+    )
+    expect(page).to have_css(".repo-activity__event", text: "Tag · v1.0")
+    other.events.create!(
+      chat_channel_id: channel.id,
+      kind: "release",
+      summary: {
+        tag: "v1.0",
+        title: "Other release",
+      },
+    )
+    DiscourseRepoActivity::Snapshot.publish_now(channel)
+    expect(page).to have_css(".repo-activity__event", text: "Other release")
+    expect(page).to have_css(".repo-activity__event", text: "Tag · v1.0")
+    connection.events.create!(
+      chat_channel_id: channel.id,
+      kind: "release",
+      summary: {
+        tag: "v1.0",
+        title: "Version 1",
+      },
+    )
+    DiscourseRepoActivity::Snapshot.publish_now(channel)
+    expect(page).to have_css(".repo-activity__event", text: "Release · Version 1")
+    expect(page).to have_no_css(".repo-activity__event", text: "Tag · v1.0")
+  end
+
   it "uses a compact icon and unread badge on a narrow desktop" do
     page.current_window.resize_to(390, 844)
     visit("/chat/c/#{channel.slug}/#{channel.id}")

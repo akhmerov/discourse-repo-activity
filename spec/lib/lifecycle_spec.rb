@@ -86,7 +86,9 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     human_reply(message)
     workflow(sha: "b" * 40, status: "success", id: 114, run_attempt: 2)
     announce
-    expect(message.reload.message).to include("fixed in bbbbbbbb")
+    expect(message.reload.message).to include(
+      "fixed in [bbbbbbbb](https://github.com/acme/sim-tools/commit/#{"b" * 40})",
+    )
     reply = Chat::Message.where(chat_channel: channel, user: bot).order(:id).last
     expect(reply.in_reply_to_id).to eq(message.id)
     expect(reply.thread_id).to be_present
@@ -105,7 +107,9 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     human_reply(message)
     workflow(sha: "b" * 40, status: "success", id: 203)
     announce
-    expect(message.reload.message).to include("fixed in bbbbbbbb")
+    expect(message.reload.message).to include(
+      "fixed in [bbbbbbbb](https://github.com/acme/sim-tools/commit/#{"b" * 40})",
+    )
     reply = Chat::Message.where(chat_channel: channel, user: bot).order(:id).last
     expect(reply.in_reply_to_id).to eq(message.id)
     expect(reply.thread_id).to be_present
@@ -187,7 +191,9 @@ RSpec.describe DiscourseRepoActivity::Announcer do
     connection.events.delete_all
     workflow(status: "success", run_attempt: 2)
     announce
-    expect(message.reload.message).to include("fixed in aaaaaaaa")
+    expect(message.reload.message).to include(
+      "fixed in [aaaaaaaa](https://github.com/acme/sim-tools/commit/#{"a" * 40})",
+    )
     expect(
       Chat::Message.where(chat_channel: channel).where("message LIKE ?", "%Bug in solver%"),
     ).to exist
@@ -381,7 +387,10 @@ RSpec.describe DiscourseRepoActivity::Announcer do
       Nokogiri::HTML5.fragment(
         Chat::Message.cook(message.message, user_id: bot.id, chat_channel: channel),
       )
-    expect(fragment.css("a, img, .emoji, .mention, .hashtag, .onebox")).to be_empty
+    expect(fragment.css("a").map { |a| a["href"] }).to eq(
+      ["https://github.com/acme/sim-tools/actions/runs/112"],
+    )
+    expect(fragment.css("strong a, img, .emoji, .mention, .hashtag, .onebox")).to be_empty
     expect(fragment.css("code")).to be_empty
     expect(fragment.text).to include("evil.com", "@ all", ": smile:")
     expect(message.message).not_to include("\u200b")
@@ -431,7 +440,9 @@ RSpec.describe DiscourseRepoActivity::Announcer do
       )
     DiscourseEvent.trigger(:chat_message_created, reply, channel, alice, {})
     expect(alert.reload).not_to be_trashed
-    expect(alert.message).to include("fixed in aaaaaaaa")
+    expect(alert.message).to include(
+      "fixed in [aaaaaaaa](https://github.com/acme/sim-tools/commit/#{"a" * 40})",
+    )
     expect(Chat::Message.where(in_reply_to_id: alert.id, user: bot)).to exist
   end
 

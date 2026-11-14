@@ -42,6 +42,57 @@ RSpec.describe DiscourseRepoActivity::OverviewController do
     expect(response.parsed_body["channels"][channel.id.to_s]["repos"].sole["state"]).to eq("paused")
   end
 
+  it "shares duplicate names and release deduplication across overview, snapshot and paginated streams" do
+    other =
+      DiscourseRepoActivity::Connection.create!(
+        chat_channel: channel,
+        created_by: user,
+        forge: "gitlab",
+        host: "gitlab.example.org",
+        repo_path: "research/solver",
+      )
+    tag =
+      connection.events.create!(chat_channel_id: channel.id, kind: "tag", summary: { tag: "v1.0" })
+    foreign_tag =
+      other.events.create!(chat_channel_id: channel.id, kind: "tag", summary: { tag: "v1.0" })
+    release =
+      connection.events.create!(
+        chat_channel_id: channel.id,
+        kind: "release",
+        summary: {
+          tag: "v1.0",
+        },
+      )
+    # A release outside this page must still hide its tag on earlier/filtered pages.
+    get "/repo-activity/channels/#{channel.id}.json",
+        params: {
+          before: release.id,
+          connection_id: connection.id,
+        }
+    expect(response.parsed_body["stream"]).to be_empty
+    get "/repo-activity/channels/#{channel.id}.json"
+    snapshot = response.parsed_body
+    expect(snapshot["stream"].map { |e| e["id"] }).to eq([release.id, foreign_tag.id])
+    expect(snapshot["new_count"]).to eq(2)
+    expect(snapshot["repos"].to_h { |r| [r["id"], r["display_name"]] }).to eq(
+      connection.id => "acme/solver",
+      other.id => "research/solver",
+    )
+    expect(snapshot["repos"].map { |r| r["forge"] }).to contain_exactly("github", "gitlab")
+    get "/repo-activity/overview.json", params: { channel_ids: [channel.id] }
+    row = response.parsed_body["channels"][channel.id.to_s]
+    expect(row["new_count"]).to eq(2)
+    expect(row["repos"].map { |r| r["name"] }).to contain_exactly("acme/solver", "research/solver")
+    put "/repo-activity/channels/#{channel.id}/read.json",
+        params: {
+          last_seen_event_id: release.id,
+        }
+    get "/repo-activity/channels/#{channel.id}.json"
+    expect(response.parsed_body["new_count"]).to eq(0)
+    expect(response.parsed_body["last_seen_event_id"]).to eq(release.id)
+    expect(tag.id).to be < release.id
+  end
+
   it "returns the bus cursor captured before reading the snapshot" do
     old_id = MessageBus.publish("/repo-activity/#{channel.id}", { refresh: true })
     cursor = MessageBus.last_id("/repo-activity/#{channel.id}")

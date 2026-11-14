@@ -61,8 +61,10 @@ en:
         recovery: "CI recovered"
         release: "Release"
         tag: "Tag"
-        pr_opened: "PR/MR opened"
-        pr_merged: "PR/MR merged"
+        pr_opened: "PR opened"
+        mr_opened: "MR opened"
+        pr_merged: "PR merged"
+        mr_merged: "MR merged"
         issue_opened: "Issue opened"
       manager:
         back: "Back"
@@ -102,7 +104,7 @@ en:
         show: "Show"
         hide: "Hide"
         copied: "Copied to clipboard."
-        github_events: 'Choose “Let me select individual events”. Use these checkboxes:'
+        github_events: "Choose “Let me select individual events”. Use these checkboxes:"
         gitlab_events: "GitLab ticks only Push events by default. Tick Pipeline events too, then choose any optional triggers:"
         github_finish: "Click Add webhook. GitHub sends a ping immediately."
         gitlab_finish: "Keep Enable SSL verification on, then Add webhook. On the webhook’s row, choose Test → Push events."

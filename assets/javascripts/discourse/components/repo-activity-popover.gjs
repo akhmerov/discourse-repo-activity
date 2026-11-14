@@ -70,12 +70,26 @@ export default class RepoActivityPopover extends Component {
   }
 
   get groups() {
-    const events = this.#merge([
+    const merged = this.#merge([
       ...this.earlier,
       ...this._retained,
       ...(this.filtered || this.args.data.stream || []),
     ]).filter(
       (event) => !this.selected || event.connection_id === this.selected
+    );
+    // A tag may have been retained before its release arrived in a live refresh.
+    const releases = new Set(
+      merged
+        .filter((event) => event.kind === "release")
+        .map((event) =>
+          JSON.stringify([event.connection_id, event.summary.tag])
+        )
+    );
+    const events = merged.filter(
+      (event) =>
+        event.kind !== "tag" ||
+        !event.summary.tag ||
+        !releases.has(JSON.stringify([event.connection_id, event.summary.tag]))
     );
     const hasNew = events.some((event) => event.id > this.args.highlightSince);
     const groups = [];
@@ -104,6 +118,12 @@ export default class RepoActivityPopover extends Component {
         previous.total += event.summary.commit_count || 0;
         continue;
       }
+      const pr = ["pr_opened", "pr_merged"].includes(event.kind);
+      const number = String(event.summary.number || "");
+      const identifier =
+        (pr || event.kind === "issue_opened") && /^[1-9]\d{0,9}$/.test(number)
+          ? `${pr && repo?.forge === "gitlab" ? "!" : "#"}${number}`
+          : null;
       groups.push({
         id: event.id,
         repoId: event.connection_id,
@@ -117,8 +137,10 @@ export default class RepoActivityPopover extends Component {
           .map((run) => ({ name: run.name, url: run.url })),
         age: age(event.created_at),
         isNew,
-        label: i18n(`repo_activity.stream_event.${event.kind}`),
-        title: event.summary.title,
+        label: i18n(
+          `repo_activity.stream_event.${pr ? `${repo?.forge === "gitlab" ? "mr" : "pr"}_${event.kind.split("_")[1]}` : event.kind}`
+        ),
+        title: [identifier, event.summary.title].filter(Boolean).join(" "),
         url: event.summary.url,
         commits: [...(event.summary.commits || [])].reverse(),
         total: event.summary.commit_count || 0,
@@ -287,8 +309,7 @@ export default class RepoActivityPopover extends Component {
               {{#if group.push}}
                 <div class="repo-activity__group-header"><strong
                   >{{group.repo}}</strong>
-                  ·
-                  {{group.actor}}
+                  {{#if group.actor}}· {{group.actor}}{{/if}}
                   →
                   {{group.branch}}
                   · CI

@@ -86,10 +86,7 @@ module DiscourseRepoActivity
             end
             update(message.id, render_message(message, ref, events))
             if ref.ci_state == "success"
-              create(
-                "#{escape(c.display_name)} fixed in #{escape(ref.head_sha.to_s[0, 8])}",
-                reply_to: message.id,
-              )
+              create("#{escape(display_name)} #{fixed_status(ref.head_sha)}", reply_to: message.id)
               ref.update!(failure_message_id: nil, failing_since: nil)
             end
           end
@@ -122,7 +119,7 @@ module DiscourseRepoActivity
               next unless ref
               if ref.ci_state == "success"
                 create(
-                  "#{escape(c.display_name)} fixed in #{escape(ref.head_sha.to_s[0, 8])}",
+                  "#{escape(display_name)} #{fixed_status(ref.head_sha)}",
                   reply_to: message.id,
                 )
                 ref.update!(failure_message_id: nil, failing_since: nil)
@@ -157,15 +154,15 @@ module DiscourseRepoActivity
             )
           raise "Repository activity alert could not be restored" if result.failure?
           announcer = new(c)
-          fixed = "fixed in #{announcer.send(:escape, event.summary["sha"].to_s[0, 8])}"
+          fixed = announcer.send(:fixed_status, event.summary["sha"])
           announcer.send(
             :update,
             parent.id,
-            "**#{announcer.send(:escape, c.display_name)}**\n#{fixed}",
+            "**#{announcer.send(:escape, announcer.send(:display_name))}**\n#{fixed}",
           )
           announcer.send(
             :create,
-            "#{announcer.send(:escape, c.display_name)} #{fixed}",
+            "#{announcer.send(:escape, announcer.send(:display_name))} #{fixed}",
             reply_to: parent.id,
           )
         end
@@ -211,11 +208,11 @@ module DiscourseRepoActivity
       replacement =
         (
           if ref.ci_state == "success"
-            "fixed in #{escape(ref.head_sha.to_s[0, 8])}"
+            fixed_status(ref.head_sha)
           else
-            sha = events.reverse.find { |e| e.kind == "failure" }&.summary&.dig("sha").presence
-            return message.message if sha.blank?
-            "#{prefix}#{escape(sha.to_s[0, 8])})"
+            failure = events.reverse.find { |e| e.kind == "failure" }
+            return message.message if failure&.summary&.dig("sha").blank?
+            failure_status(ref.ref_name, failure)
           end
         )
       message
@@ -248,7 +245,8 @@ module DiscourseRepoActivity
               @connection.forge == "gitlab" && %w[pr_opened pr_merged].include?(e.kind) ? "!" : "#"
             identifier = "#{sigil}#{e.summary["number"].to_i}"
           end
-          "#{label} by #{escape(e.actor_login)}: #{link(e.summary["title"], e.summary["url"], identifier: identifier)}"
+          actor = e.actor_login.present? ? " by #{escape(e.actor_login)}" : ""
+          "#{label}#{actor}: #{link(e.summary["title"], e.summary["url"], identifier: identifier)}"
         end
       # Cap bursts by kind, preserving one short line for each retained event.
       output =
@@ -268,15 +266,37 @@ module DiscourseRepoActivity
         status =
           (
             if ref.ci_state == "success"
-              "fixed in #{escape(ref.head_sha.to_s[0, 8])}"
+              fixed_status(ref.head_sha)
             else
-              "CI failing on #{escape(name)} (#{escape(ref_events.reverse.find { |e| e.kind == "failure" }&.summary&.dig("sha").to_s[0, 8])})"
+              failure_status(name, ref_events.reverse.find { |e| e.kind == "failure" })
             end
           )
         prefix = mention && ref.ci_state == "failed" ? pusher_mention(ref) : nil
         alerts << [prefix, status].compact.join(" ")
       end
-      fit_message("**#{escape(@connection.display_name)}**", output, alerts)
+      fit_message("**#{escape(display_name)}**", output, alerts)
+    end
+
+    def display_name
+      return @connection.display_name unless @connection.persisted?
+      Connection.display_labels(Connection.where(chat_channel_id: @connection.chat_channel_id))[
+        @connection.id
+      ]
+    end
+
+    def failure_status(name, event)
+      summary = event&.summary || {}
+      "CI failing on #{escape(name)} (#{link(summary["sha"].to_s[0, 8], summary["url"])})"
+    end
+
+    def fixed_status(sha)
+      # Recovery carries a run URL, not a commit URL. Build the latter only from
+      # a validated SHA and this connection's validated repository address.
+      url =
+        if sha.to_s.match?(/\A[0-9a-f]{40,64}\z/i)
+          "#{@connection.repository_url}/#{@connection.forge == "gitlab" ? "-/commit" : "commit"}/#{sha}"
+        end
+      "fixed in #{link(sha.to_s[0, 8], url)}"
     end
 
     def fit_message(header, lines, alerts)

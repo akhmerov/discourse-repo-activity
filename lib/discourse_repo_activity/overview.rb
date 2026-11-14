@@ -15,6 +15,7 @@ module DiscourseRepoActivity
       bus_ids =
         channels.to_h { |channel| [channel.id, MessageBus.last_id("/repo-activity/#{channel.id}")] }
       connections = Connection.where(chat_channel_id: ids).includes(:refs).order(:id).to_a
+      labels = Connection.display_labels(connections)
       latest =
         Event.where(connection_id: connections.map(&:id)).group(:connection_id).maximum(:created_at)
       # Exactly the header/stream predicate and shared per-user cursor; no event
@@ -44,7 +45,7 @@ module DiscourseRepoActivity
               end
             {
               id: connection.id,
-              name: connection.display_name,
+              name: labels[connection.id],
               branch: connection.default_branch,
               state: connection.enabled? ? ref&.ci_state || "none" : "paused",
               updated_at: ref&.updated_at || latest[connection.id],

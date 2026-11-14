@@ -48,6 +48,24 @@ module DiscourseRepoActivity
       "https://#{host}/#{repo_path}"
     end
 
+    # Resolve collisions within a channel only, without loading each repo separately.
+    def self.display_labels(connections)
+      connections
+        .group_by { |c| [c.chat_channel_id, c.display_name] }
+        .values
+        .flat_map do |group|
+          group.map do |connection|
+            name = connection.display_name
+            if group.length > 1
+              name = connection.repo_path
+              name = "#{connection.host}/#{name}" if group.count { |c| c.repo_path == name } > 1
+            end
+            [connection.id, name]
+          end
+        end
+        .to_h
+    end
+
     def management_json
       attributes.slice(
         "id",

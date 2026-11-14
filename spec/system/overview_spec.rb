@@ -50,6 +50,34 @@ RSpec.describe "Workspace repository overview" do
     sign_in(user)
   end
 
+  it "qualifies duplicate short names in overview chips and the opened stream" do
+    other =
+      DiscourseRepoActivity::Connection.create!(
+        chat_channel: @channel,
+        created_by: admin,
+        forge: "gitlab",
+        host: "gitlab.example.org",
+        repo_path: "research/repo-0",
+      )
+    other.events.create!(
+      chat_channel_id: @channel.id,
+      kind: "push",
+      summary: {
+        title: "GitLab push",
+      },
+    )
+    DiscourseRepoActivity::Connection.where(
+      chat_channel: @channel,
+      repo_path: %w[acme/repo-2 acme/repo-3],
+    ).destroy_all
+    visit("#{@workspace.url}/overview")
+    expect(page).to have_css(".repo-activity__chip", text: "acme/repo-0")
+    expect(page).to have_css(".repo-activity__chip", text: "research/repo-0")
+    find(".repo-activity__chip", text: "research/repo-0").click
+    expect(page).to have_css(".repo-activity__repo-row", text: "research/repo-0")
+    expect(page).to have_css(".repo-activity__repo-row", text: "acme/repo-0")
+  end
+
   it "keeps workspace cards usable when repository activity is disabled" do
     SiteSetting.repo_activity_enabled = false
     visit("#{@workspace.url}/overview")

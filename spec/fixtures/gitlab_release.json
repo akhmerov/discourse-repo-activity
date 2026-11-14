@@ -10,7 +10,12 @@
     "default_branch": "main",
     "web_url": "https://gitlab.tudelft.nl/group/nested/sim-tools"
   },
-  "user": {
-    "username": "alice"
+  "url": "https://gitlab.tudelft.nl/group/nested/sim-tools/-/releases/v1.0",
+  "commit": {
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "author": {
+      "name": "Commit author, not release actor",
+      "email": "author@example.org"
+    }
   }
 }

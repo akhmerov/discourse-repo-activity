@@ -9,39 +9,38 @@ module DiscourseRepoActivity
           ChannelRead.find_by(user_id: user.id, chat_channel_id: channel.id)&.last_seen_event_id
       stream_data = stream(channel)
 
+      connections = Connection.where(chat_channel_id: channel.id).includes(:refs).to_a
+      labels = Connection.display_labels(connections)
       repos =
-        Connection
-          .where(chat_channel_id: channel.id)
-          .includes(:refs)
-          .map do |c|
-            refs =
-              c.refs.map do |r|
-                r.attributes.slice(
-                  "ref_name",
-                  "kind",
-                  "pr_number",
-                  "head_sha",
-                  "pushed_by_login",
-                  "ci_state",
-                  "updated_at",
-                )
-              end
-            latest = c.events.order(id: :desc).first
-            default_ref =
-              refs.find { |r| r["kind"] == "branch" && r["ref_name"] == c.default_branch }
-            {
-              id: c.id,
-              display_name: c.display_name,
-              url: c.repository_url,
-              enabled: c.enabled,
-              default_branch: c.default_branch,
-              default_ref: default_ref,
-              failing: c.enabled? && default_ref&.dig("ci_state") == "failed",
-              state: c.enabled? ? default_ref&.dig("ci_state") || "none" : "paused",
-              last_activity_at: latest&.created_at,
-              new_count: user ? c.events.visible.where("id > ?", seen.to_i).count : nil,
-            }
-          end
+        connections.map do |c|
+          refs =
+            c.refs.map do |r|
+              r.attributes.slice(
+                "ref_name",
+                "kind",
+                "pr_number",
+                "head_sha",
+                "pushed_by_login",
+                "ci_state",
+                "updated_at",
+              )
+            end
+          latest = c.events.order(id: :desc).first
+          default_ref = refs.find { |r| r["kind"] == "branch" && r["ref_name"] == c.default_branch }
+          {
+            id: c.id,
+            display_name: labels[c.id],
+            forge: c.forge,
+            url: c.repository_url,
+            enabled: c.enabled,
+            default_branch: c.default_branch,
+            default_ref: default_ref,
+            failing: c.enabled? && default_ref&.dig("ci_state") == "failed",
+            state: c.enabled? ? default_ref&.dig("ci_state") || "none" : "paused",
+            last_activity_at: latest&.created_at,
+            new_count: user ? c.events.visible.where("id > ?", seen.to_i).count : nil,
+          }
+        end
       {
         repos: repos.sort_by { |r| [r[:failing] ? 0 : 1, -(r[:last_activity_at]&.to_f || 0)] },
         **stream_data,

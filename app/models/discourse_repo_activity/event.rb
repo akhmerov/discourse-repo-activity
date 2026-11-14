@@ -13,6 +13,11 @@ module DiscourseRepoActivity
           WHERE pushes.connection_id = repo_activity_events.connection_id
             AND pushes.kind = 'push'
             AND pushes.summary->>'sha' = repo_activity_events.summary->>'sha'
+        )) AND NOT (repo_activity_events.kind = 'tag' AND EXISTS (
+          SELECT 1 FROM repo_activity_events releases
+          WHERE releases.connection_id = repo_activity_events.connection_id
+            AND releases.kind = 'release'
+            AND releases.summary->>'tag' = repo_activity_events.summary->>'tag'
         ))
       SQL
 
