@@ -2,8 +2,10 @@
 
 module DiscourseRepoActivity
   module Bot
+    # Seed fixtures can be skipped by a deployment, so create the bot on demand.
     def self.user
-      User.find(PluginStore.get(PLUGIN_NAME, "bot_user_id"))
+      id = PluginStore.get(PLUGIN_NAME, "bot_user_id")
+      (id && User.find_by(id: id)) || ensure!
     end
 
     def self.ensure!
